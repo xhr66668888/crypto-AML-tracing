@@ -1,0 +1,23 @@
+.env
+.venv/
+.python-deps/
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+*.d.ts.map
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.data/
+*.pyc
+*.log
+coverage.xml
+.DS_Store
+
+# Local skill/research sources copied during planning; not product source.
+Raindrop/
+TraeSkill/
+awesome-skills/
+industrial-dev-skillpack
