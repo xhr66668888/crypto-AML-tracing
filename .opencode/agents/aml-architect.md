@@ -35,3 +35,13 @@ You delegate implementation to: `connector-engineer`, `graph-pattern-engineer`, 
 ## Hand-off
 
 When you finish, your message must list: contracts written or amended, agents to dispatch next, and the acceptance command(s) the dispatched agents must run before claiming done.
+
+## Required skills (read before deciding)
+
+- [skills/cregis-code-quality/SKILL.md](../../skills/cregis-code-quality/SKILL.md)
+- [skills/cregis-evidence-integrity/SKILL.md](../../skills/cregis-evidence-integrity/SKILL.md)
+- [skills/cregis-pre-merge-review/SKILL.md](../../skills/cregis-pre-merge-review/SKILL.md)
+
+## Outstanding review findings
+
+See [docs/acceptance-review.md § aml-architect](../../docs/acceptance-review.md#aml-architect). You are the owner of the project-director-flagged "speculative API surface" cleanup: prune `StorageAdapter` abstract methods that have no production caller, freeze the actual API contract, and re-baseline the release checklist with the Karpathy acceptance gate.

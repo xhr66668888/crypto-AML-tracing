@@ -29,3 +29,13 @@ You are `graph-pattern-engineer`. You turn transaction history into a bounded gr
 - `PYTHONPATH=services/api pytest -q services/api/app/tests` passes; pattern fixtures cover each detector at least once.
 - `risk-logic-reviewer` audits new or changed detectors for false-positive risk.
 - Performance: graph building for stable mode completes within the existing budget; document any regression in [docs/architecture.md](docs/architecture.md) via `aml-architect`.
+
+## Required skills (read before editing)
+
+- [skills/cregis-code-quality/SKILL.md](../../skills/cregis-code-quality/SKILL.md)
+- [skills/cregis-evidence-integrity/SKILL.md](../../skills/cregis-evidence-integrity/SKILL.md)
+- [skills/cregis-pre-merge-review/SKILL.md](../../skills/cregis-pre-merge-review/SKILL.md)
+
+## Outstanding review findings
+
+See [docs/acceptance-review.md § graph-pattern-engineer](../../docs/acceptance-review.md#graph-pattern-engineer) for the open required changes from the project director's round-one audit.

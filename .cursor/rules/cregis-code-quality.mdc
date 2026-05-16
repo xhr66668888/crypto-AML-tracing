@@ -1,0 +1,56 @@
+---
+description: Cregis ETH AML Tracing code-quality bar. Project-customised Karpathy guidelines. Auto-loaded by Cursor for every edit in this repository.
+globs:
+  - services/api/**
+  - apps/web/**
+  - infra/**
+  - scripts/**
+  - docs/**
+alwaysApply: true
+---
+
+# Cregis Code Quality (auto-loaded)
+
+You are editing the Cregis ETH AML Tracing repository. Before writing or
+modifying any code, read the full skill at
+`skills/cregis-code-quality/SKILL.md`. The four-rule summary is below; the
+project-director acceptance checks are in the full skill.
+
+## 1. Think Before Coding
+- State assumptions explicitly. If uncertain, ask.
+- If multiple interpretations exist, present them.
+- If something is unclear, stop and ask.
+
+## 2. Simplicity First
+- Minimum code that solves the problem. Nothing speculative.
+- No second `RaindropAmlScorer`. No `PostgresStore` until there is a switch
+  flag. No abstract `StorageAdapter` method without a production caller.
+- No `language=...` / `include_raw_context=...` parameters that nothing reads.
+- If you write 200 lines and it could be 50, rewrite it.
+
+## 3. Surgical Changes
+- Touch only what you must. Don't "improve" adjacent code.
+- Match existing style.
+- Remove imports and variables your changes orphaned.
+- Stay inside the paths your subagent owns
+  (see `docs/team-assignments.md`).
+
+## 4. Goal-Driven Execution
+- Define verifiable success criteria.
+- For multi-step tasks, state the plan first.
+- "Done" means: `pytest -q` green, `npm run build` green, `scripts/smoke.sh`
+  green.
+
+## Hard blockers (project-director rejection)
+- `NotImplementedError` raised in non-test code.
+- `"latest"` in `apps/web/package.json`.
+- A Python dep version in `services/api/requirements.txt` that is not on PyPI.
+- Use of `from datetime import UTC` without `python>=3.11` in README + reqs.
+- New API endpoint / model field / env var without `aml-architect` approval.
+- Change to scoring / direct-hit / report content without
+  `risk-logic-reviewer` verdict.
+
+Full rationale and grep-able acceptance checks:
+[skills/cregis-code-quality/SKILL.md](mdc:skills/cregis-code-quality/SKILL.md),
+[skills/cregis-pre-merge-review/SKILL.md](mdc:skills/cregis-pre-merge-review/SKILL.md),
+[skills/cregis-evidence-integrity/SKILL.md](mdc:skills/cregis-evidence-integrity/SKILL.md).

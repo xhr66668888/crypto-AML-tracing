@@ -56,4 +56,31 @@ Module boundaries map 1:1 to OpenCode subagents defined under [`.opencode/agents
 | `infra/scripts/`, `.github/workflows/`, `docker-compose.yml`, `pytest.ini`, smoke | `qa-devops-engineer` | OpenCode default |
 | `docs/database/schema.sql`, `services/api/app/storage/` | `db-storage-engineer` | OpenCode default |
 
-Coordination: every change touching API / schema / `.env` / module boundaries goes through `aml-architect` first. Every change touching scoring, patterns, direct-hit, or report content needs a `risk-logic-reviewer` verdict before merge. Execution agents stay in their owned files; cross-boundary changes are routed through `aml-architect`. The `RaindropAmlScorer.predict(graph)` interface is frozen until `aml-architect` approves a change. Detailed roles and deliverables: [`docs/team-assignments.md`](team-assignments.md).
+Coordination: every change touching API / schema / `.env` / module boundaries goes through `aml-architect` first. Every change touching scoring, patterns, direct-hit, or report content needs a `risk-logic-reviewer` verdict before merge. Execution agents stay in their owned files; cross-boundary changes are routed through `aml-architect`. The `RaindropAmlScorer.predict(graph) -> RaindropResult` interface is frozen until `aml-architect` approves a change. Detailed roles and deliverables: [`docs/team-assignments.md`](team-assignments.md).
+
+## Code Quality (Karpathy Acceptance Gate)
+
+Adopted 2026-05-16. Every diff must pass the project-customised Karpathy
+guidelines and the project-director acceptance checks in:
+
+- [`skills/cregis-code-quality/SKILL.md`](../skills/cregis-code-quality/SKILL.md)
+  — Karpathy principles plus the hard blockers the project director enforces
+  at merge.
+- [`skills/cregis-pre-merge-review/SKILL.md`](../skills/cregis-pre-merge-review/SKILL.md)
+  — executable review skill, returns an `approved` / `approved-with-changes`
+  / `blocked` verdict.
+- [`skills/cregis-evidence-integrity/SKILL.md`](../skills/cregis-evidence-integrity/SKILL.md)
+  — compliance-flavoured Karpathy adaptation; mandatory for any change that
+  touches scoring, patterns, direct-hit, or report content.
+
+Cursor auto-loads these via
+[`.cursor/rules/cregis-code-quality.mdc`](../.cursor/rules/cregis-code-quality.mdc).
+OpenCode subagents discover them through their per-agent `Required skills`
+section and through the universal [`AGENTS.md`](../AGENTS.md) at the repo
+root.
+
+The open round-one findings from the first acceptance audit live in
+[`docs/acceptance-review.md`](acceptance-review.md). They are mirrored in
+[`docs/known-limitations.md § Code-quality limitations`](known-limitations.md#code-quality-limitations-round-one-acceptance-audit-2026-05-16)
+and in
+[`docs/release-checklist.md § 11`](release-checklist.md#11-karpathy-acceptance-gate-added-2026-05-16).

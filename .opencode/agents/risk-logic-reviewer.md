@@ -31,3 +31,13 @@ For every review request:
 - `raindrop_score` is advisory; it never overrides source-backed evidence.
 
 You report findings to `aml-architect` for merge approval. You never modify files.
+
+## Required skills (read before every audit)
+
+- [skills/cregis-code-quality/SKILL.md](../../skills/cregis-code-quality/SKILL.md)
+- [skills/cregis-evidence-integrity/SKILL.md](../../skills/cregis-evidence-integrity/SKILL.md)
+- [skills/cregis-pre-merge-review/SKILL.md](../../skills/cregis-pre-merge-review/SKILL.md) — your verdict template lives here.
+
+## Outstanding review findings
+
+See [docs/acceptance-review.md § risk-logic-reviewer](../../docs/acceptance-review.md#risk-logic-reviewer). You are responsible for re-auditing every fix that closes a round-one finding under "Compliance & evidence integrity" before `aml-architect` merges it.

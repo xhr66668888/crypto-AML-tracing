@@ -36,9 +36,24 @@ opencode.json              所有 subagent 的模型 / 推理强度集中配置
 
 - `Raindrop/`：研究源码已阅读，后续只保留迁移说明，不把完整研究仓库作为业务源码提交。
 - `TraeSkill/`、`awesome-skills/`、`industrial-dev-skillpack`：原始本地技能包已清理。
-- `.cursor/`：Cursor 阶段的 agents 与 skills 已迁出，全部以 OpenCode subagent 形式承载（`.opencode/agents/`）。
+
+复活并保留的目录（2026-05-16 项目总监验收后新增）：
+
+- `.cursor/rules/`：保留一条自动加载规则
+  [`cregis-code-quality.mdc`](../.cursor/rules/cregis-code-quality.mdc)，作用是把 Karpathy 风格的代码质量底线在 Cursor 端自动注入到每次编辑里。规则文件本身只引用 `skills/` 下的 SKILL.md，不是另一份独立的指南。
+- `skills/`：三条项目专属可调用 skill，包括
+  [`cregis-code-quality`](../skills/cregis-code-quality/SKILL.md)（项目化 Karpathy 守则与验收闸口）、
+  [`cregis-pre-merge-review`](../skills/cregis-pre-merge-review/SKILL.md)（可执行的合并前评审流程与裁决模板）、
+  [`cregis-evidence-integrity`](../skills/cregis-evidence-integrity/SKILL.md)（合规取向的 Karpathy 适配，仅作用于评分/模式/直接命中/报告内容）。OpenCode subagent 的 markdown 都通过新增的 "Required skills" 段落把这些 skill 列为必读输入。
 
 ## 3. 本地运行
+
+### 3.0 运行前提（2026-05-16 验收后新增）
+
+- **Python 3.11 或更高**。代码使用 `from datetime import UTC`，Python 3.9/3.10 启动即失败。
+- **Node 18 或更高**，由 Vite 5 决定。
+- 安装 Python 依赖前请知道：`services/api/requirements.txt` 当前钉死了 PyPI 上**不存在**的 `python-dotenv==1.2.2`（验收发现 R1），原样 `pip install` 会失败。临时绕过办法：先把这一行改成 `python-dotenv==1.1.1` 或 `python-dotenv==1.2.1`。彻底修复属于 `qa-devops-engineer` 的本轮 blocker，详见
+  [`docs/acceptance-review.md`](acceptance-review.md)。
 
 推荐一键启动：
 

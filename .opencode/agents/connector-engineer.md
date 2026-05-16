@@ -31,3 +31,12 @@ You are `connector-engineer`. You make external provider integrations boring and
 - `PYTHONPATH=services/api pytest -q services/api/app/tests` passes including connector tests.
 - A simulated provider 429, 500, timeout, and empty-payload each produce a structured error visible in the API response.
 - `aml-architect` reviews any new error model; `risk-logic-reviewer` reviews any change that affects what hits `RiskIntelAggregator`.
+
+## Required skills (read before editing)
+
+- [skills/cregis-code-quality/SKILL.md](../../skills/cregis-code-quality/SKILL.md) — Karpathy guidelines, project-customised.
+- [skills/cregis-pre-merge-review/SKILL.md](../../skills/cregis-pre-merge-review/SKILL.md) — run this on your own diff before claiming done.
+
+## Outstanding review findings
+
+See [docs/acceptance-review.md § connector-engineer](../../docs/acceptance-review.md#connector-engineer) for the open required changes from the project director's round-one acceptance audit.

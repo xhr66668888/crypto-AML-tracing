@@ -34,3 +34,12 @@ You are `qa-devops-engineer`. You make the system runnable on a fresh machine an
 - New machine following [README.md](README.md) and [docs/development-zh.md](docs/development-zh.md) reaches a healthy `/health` response.
 - CI on `main` runs `pytest` and `npm run build` and is green.
 - `aml-architect` reviews release checklist and known-limitations file.
+
+## Required skills (read before editing)
+
+- [skills/cregis-code-quality/SKILL.md](../../skills/cregis-code-quality/SKILL.md)
+- [skills/cregis-pre-merge-review/SKILL.md](../../skills/cregis-pre-merge-review/SKILL.md)
+
+## Outstanding review findings
+
+See [docs/acceptance-review.md § qa-devops-engineer](../../docs/acceptance-review.md#qa-devops-engineer). Round-one blockers include the broken `python-dotenv==1.2.2` pin (does not exist on PyPI), the undocumented Python ≥ 3.11 requirement, and the CI workflow that has no machine-readable verification of these fixes.

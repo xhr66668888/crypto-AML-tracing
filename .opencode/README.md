@@ -70,6 +70,18 @@ Type `@<name>` followed by the request, e.g.:
 @risk-logic-reviewer audit the current scoring weights and run pytest.
 ```
 
+### Round-one acceptance fixes (added 2026-05-16)
+
+After the project director's acceptance review
+([`docs/acceptance-review.md`](../docs/acceptance-review.md)), use the
+ready-made prompt in [`PROMPT-acceptance-fixes.md`](PROMPT-acceptance-fixes.md)
+to dispatch all 10 subagents in four dependency waves and close every
+round-one finding. The prompt forces every subagent to read the new
+project-customised Karpathy skills under
+[`skills/`](../skills/) and to run
+[`skills/cregis-pre-merge-review/SKILL.md`](../skills/cregis-pre-merge-review/SKILL.md)
+on its own diff before reporting back.
+
 ### One-shot parallel delivery (collapse the 3-day plan)
 
 This is what you want for "一次完成". Paste this whole block as one message into the OpenCode chat box; `build` will dispatch every subagent through the Task tool in a single turn, and OpenCode will run them as concurrent child sessions:

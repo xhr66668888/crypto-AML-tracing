@@ -1,5 +1,15 @@
 # Swapping from InMemoryStore to PostgreSQL
 
+> ⚠️ **Round-one acceptance status: blocked.** The `PostgresStore`
+> implementation in `services/api/app/storage/postgres.py` raises
+> `NotImplementedError` on `get_screening_event` and has `TODO`s on
+> `list_screening_events`. It is **not** safe to point production traffic at
+> it. See
+> [`docs/acceptance-review.md § db-storage-engineer`](../acceptance-review.md#db-storage-engineer)
+> for the remediation choice (delete vs. integration-test). Until that is
+> resolved, this document describes the *intended* swap path, not a working
+> one.
+
 This document explains how to migrate the AML Tracing system from the default in-memory storage to PostgreSQL.
 
 ## Overview

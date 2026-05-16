@@ -1,5 +1,14 @@
 # Deploy & Run Guide
 
+## Requirements
+
+- **Python 3.11 or newer.** The codebase uses `from datetime import UTC`
+  (added in Python 3.11). On stock macOS Python 3.9 the import fails before
+  the app starts. Until finding **R3** in
+  [`docs/acceptance-review.md`](acceptance-review.md) is closed,
+  `scripts/boot-demo.sh` may not detect this for you.
+- **Node 18 or newer** (LTS). Required by Vite 5.
+
 ## Local Development
 
 ### Quick Start (One Command)
@@ -174,8 +183,11 @@ bash scripts/smoke.sh
 
 ### API won't start
 
-- Check Python version: `python3 --version` (needs 3.10+)
-- Check dependencies: `pip install -r services/api/requirements.txt`
+- Check Python version: `python3 --version` (needs **3.11+** — `from datetime import UTC` is Python 3.11).
+- Check dependencies: `pip install -r services/api/requirements.txt`. If pip
+  refuses to install `python-dotenv`, you are hitting acceptance finding
+  **R1**; replace the version in `services/api/requirements.txt` with a
+  PyPI-published one (`1.1.1` or `1.2.1`) and retry.
 - Check port: `lsof -i :8000` — kill conflicting processes
 
 ### Frontend build fails
@@ -206,7 +218,11 @@ bash scripts/smoke.sh
 
 ### PostgreSQL connection issues
 
-- PostgreSQL is optional; API defaults to in-memory
+- PostgreSQL is optional; API defaults to in-memory.
 - Check container: `docker compose ps postgres`
 - Check health: `docker compose exec postgres pg_isready`
 - Connection string: `postgresql://cregis:cregis_dev@localhost:5432/cregis_aml`
+- The `PostgresStore` adapter is round-one **blocked** (acceptance finding
+  C6) — setting `DATABASE_URL` today will raise `NotImplementedError` on
+  some read paths. See
+  [`docs/acceptance-review.md § db-storage-engineer`](acceptance-review.md#db-storage-engineer).

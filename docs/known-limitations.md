@@ -134,3 +134,33 @@ V1 generates a single English report format. There are no jurisdiction-specific 
 | Scheduled batch screening | Not supported |
 | ERC-20 token transfer tracing | Not supported |
 | Jurisdiction-specific report templates | Not supported |
+
+---
+
+## Code-quality limitations (round-one acceptance audit, 2026-05-16)
+
+These are not feature gaps — they are open Karpathy-violation cleanups that
+the project director flagged at acceptance. They block release and are
+tracked individually in [`docs/acceptance-review.md`](acceptance-review.md)
+and [`docs/release-checklist.md § 11`](release-checklist.md). Listed here so
+every contributor sees them in the limitations document too.
+
+| # | Area | Issue | Owner |
+|---|---|---|---|
+| C1 | `services/api/requirements.txt` | `python-dotenv==1.2.2` does not exist on PyPI; install fails. | `qa-devops-engineer` |
+| C2 | `services/api/app/domain/models.py` etc. | uses `from datetime import UTC` (Python ≥ 3.11) but README does not state this. | `qa-devops-engineer` + `aml-architect` |
+| C3 | `apps/web/package.json` | every dependency pinned to `"latest"`; non-reproducible build. | `web-workbench-engineer` |
+| C4 | `services/api/app/ml/raindrop_aml.py` | dead duplicate of `raindrop_scorer.py`; not imported anywhere. | `raindrop-ml-engineer` |
+| C5 | `services/api/app/domain/scoring.py:66-70` | dead `isinstance(result, tuple)` branch supporting the dead duplicate above. | `raindrop-ml-engineer` |
+| C6 | `services/api/app/storage/postgres.py` | 442 lines with `NotImplementedError` and `TODO`s; never instantiated. | `db-storage-engineer` |
+| C7 | `services/api/app/storage/base.py` + `memory.py` | many `@abstractmethod`s (`add_risk_source_hit`, `add_pattern_signal`, `add_network_metric`, `add_ai_report`, `append_audit_log`, …) have no production caller. | `aml-architect` + `db-storage-engineer` |
+| C8 | `services/api/app/connectors/etherscan.py` | `get_internal_transactions` is tested but not used in production. | `connector-engineer` |
+| C9 | `services/api/app/domain/patterns.py` | unused `import math`; `_build_adjacency` is called but the returned `adj` is never read by its consumer. | `graph-pattern-engineer` |
+| C10 | `services/api/app/domain/scoring.py` | redundant disposition branch + commented-out alternative formula. | `risk-intel-engineer` |
+| C11 | `services/api/app/services/reporting.py` | `DeepSeekReporter` "backward-compatible alias" with no V0; `language=` parameter never consumed. | `report-engineer` |
+| C12 | `services/api/app/main.py:135-212` | watchlist CSV/JSON import paths repeat ~30 lines. | `risk-intel-engineer` |
+| C13 | `apps/web/src/App.tsx:11` | `connectionStatus` state; setter never called; `ConnectionIndicator` always returns `null`. | `web-workbench-engineer` |
+
+Closing all of these moves the project from `approved-with-changes` to
+`approved`. The skill that codifies the quality bar lives at
+[`skills/cregis-code-quality/SKILL.md`](../skills/cregis-code-quality/SKILL.md).

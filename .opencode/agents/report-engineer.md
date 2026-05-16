@@ -30,3 +30,13 @@ You are `report-engineer`. You convert the investigation result into an English 
 - A run with no source hits and no patterns produces a report that states the absence explicitly.
 - A run with a direct-hit produces a report whose recommendation is `hold_for_manual_review`.
 - `risk-logic-reviewer` audits new prompt versions for hallucination risk before merge.
+
+## Required skills (read before editing)
+
+- [skills/cregis-code-quality/SKILL.md](../../skills/cregis-code-quality/SKILL.md)
+- [skills/cregis-evidence-integrity/SKILL.md](../../skills/cregis-evidence-integrity/SKILL.md)
+- [skills/cregis-pre-merge-review/SKILL.md](../../skills/cregis-pre-merge-review/SKILL.md)
+
+## Outstanding review findings
+
+See [docs/acceptance-review.md § report-engineer](../../docs/acceptance-review.md#report-engineer). Round-one blockers include collapsing the `DeepSeekReporter` "backward-compatible alias" and removing the unused `language=` / `include_raw_context=` parameters.

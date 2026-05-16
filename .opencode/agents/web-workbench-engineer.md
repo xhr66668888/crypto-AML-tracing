@@ -31,3 +31,12 @@ You are `web-workbench-engineer`. You build the analyst workbench in [apps/web/]
 - `cd apps/web && npm run build` passes.
 - Manual or Playwright check at 1440 / 1180 / 390 widths shows no overflow or overlap.
 - `aml-architect` confirms no risk content has been silently rewritten in the UI.
+
+## Required skills (read before editing)
+
+- [skills/cregis-code-quality/SKILL.md](../../skills/cregis-code-quality/SKILL.md)
+- [skills/cregis-pre-merge-review/SKILL.md](../../skills/cregis-pre-merge-review/SKILL.md)
+
+## Outstanding review findings
+
+See [docs/acceptance-review.md § web-workbench-engineer](../../docs/acceptance-review.md#web-workbench-engineer). Round-one blockers include removing dead `connectionStatus` state (or wiring it to real health polling) and replacing every `"latest"` in `apps/web/package.json` with a pinned version.

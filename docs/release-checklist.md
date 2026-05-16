@@ -108,6 +108,42 @@
 - [ ] No enterprise permissions/approval flows/audit backend
 - [ ] All documented in `docs/known-limitations.md`
 
+## 11. Karpathy Acceptance Gate (added 2026-05-16)
+
+The project director enforces
+[`skills/cregis-code-quality/SKILL.md`](../skills/cregis-code-quality/SKILL.md)
+at acceptance. Before release, the round-one findings in
+[`docs/acceptance-review.md`](acceptance-review.md) must all be closed:
+
+- [ ] **R1** — `services/api/requirements.txt` no longer pins a non-existent
+      `python-dotenv` version.
+- [ ] **R2** — `apps/web/package.json` has no `"latest"` entries; the
+      lockfile is committed.
+- [ ] **R3** — README documents the Python ≥ 3.11 requirement; the boot
+      script fails fast on older interpreters.
+- [ ] **R4** — `services/api/requirements.txt` carries a `# requires Python
+      >= 3.11` header comment.
+- [ ] **raindrop-ml-engineer** blocker closed: duplicate
+      `services/api/app/ml/raindrop_aml.py` deleted; `isinstance(result,
+      tuple)` branch removed from `scoring.py`.
+- [ ] **db-storage-engineer** blocker closed: `PostgresStore` either deleted
+      or proven via an integration test gated on `DATABASE_URL`.
+- [ ] **web-workbench-engineer** blocker closed: dead `connectionStatus`
+      state removed or wired to live health polling.
+- [ ] All other `approved-with-changes` items in
+      [`docs/acceptance-review.md`](acceptance-review.md) addressed
+      (`import math`, `_build_adjacency`, redundant disposition branch,
+      commented-out alternative formula, watchlist import duplication,
+      `DeepSeekReporter` alias, `language=` parameter, dead
+      `get_internal_transactions`).
+- [ ] `risk-logic-reviewer` has signed off on every diff that touched
+      scoring / patterns / direct-hit / report content, using the verdict
+      template in
+      [`skills/cregis-pre-merge-review/SKILL.md`](../skills/cregis-pre-merge-review/SKILL.md).
+- [ ] `aml-architect` has re-run the full pre-merge review skill against the
+      merged branch and the verdict is `approved` (no `approved-with-changes`
+      and no `blocked`).
+
 ---
 
 ## Sign-off
@@ -116,3 +152,4 @@
 |-------|------|--------|------|
 | `aml-architect` | Contract owner | FROZEN | 2026-05-16 |
 | `risk-logic-reviewer` | Compliance audit | PENDING | — |
+| `project-director` | Karpathy acceptance gate | PENDING (round-one) | 2026-05-16 |

@@ -32,3 +32,13 @@ You are `risk-intel-engineer`. You make compliance evidence land in the system i
 - Importing a sample OFAC address via the import endpoint causes a screening to that address to return `hold_for_manual_review`.
 - `risk-logic-reviewer` signs off on the direct-hit category list and the rule weights.
 - `pytest` passes including new watchlist and direct-hit tests.
+
+## Required skills (read before editing)
+
+- [skills/cregis-code-quality/SKILL.md](../../skills/cregis-code-quality/SKILL.md)
+- [skills/cregis-evidence-integrity/SKILL.md](../../skills/cregis-evidence-integrity/SKILL.md)
+- [skills/cregis-pre-merge-review/SKILL.md](../../skills/cregis-pre-merge-review/SKILL.md)
+
+## Outstanding review findings
+
+See [docs/acceptance-review.md § risk-intel-engineer](../../docs/acceptance-review.md#risk-intel-engineer) for the open required changes from the project director's round-one audit.

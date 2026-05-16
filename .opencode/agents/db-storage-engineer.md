@@ -29,3 +29,12 @@ You are `db-storage-engineer`. You define how the workbench remembers what it ha
 - `psql -f docs/database/schema.sql` against an empty database creates all tables without errors.
 - `aml-architect` approves any schema or contract change.
 - `pytest` continues to pass against the in-memory store.
+
+## Required skills (read before editing)
+
+- [skills/cregis-code-quality/SKILL.md](../../skills/cregis-code-quality/SKILL.md)
+- [skills/cregis-pre-merge-review/SKILL.md](../../skills/cregis-pre-merge-review/SKILL.md)
+
+## Outstanding review findings
+
+See [docs/acceptance-review.md § db-storage-engineer](../../docs/acceptance-review.md#db-storage-engineer). Round-one blockers: the 442-line `PostgresStore` raises `NotImplementedError` and is never instantiated — it is speculative code under the Karpathy §2 bar. Either gate it behind `DATABASE_URL` + an integration test that actually runs, or delete it and keep the schema as the contract.
