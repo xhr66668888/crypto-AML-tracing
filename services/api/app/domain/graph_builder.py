@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from collections import deque
-from dataclasses import dataclass
+from collections import Counter, defaultdict, deque
+from dataclasses import dataclass, field
 
 from app.connectors.etherscan import EtherscanClient
 from app.domain.models import GraphEdge, GraphNode, InvestigationGraph, InvestigationMode
@@ -9,12 +9,28 @@ from app.domain.validators import normalize_address
 
 
 @dataclass
+class GraphData:
+    """Bounded graph representation with nodes, edges, and aggregated metadata."""
+
+    nodes: list[dict]
+    edges: list[dict]
+    metadata: dict
+
+
+@dataclass
 class GraphBuildResult:
     graph: InvestigationGraph
     raw_transactions: list[dict]
+    graph_data: GraphData | None = None
 
 
 class GraphBuilder:
+    """Bounded BFS graph builder for AML investigations.
+
+    Stable mode: 3 hops, MAX_STABLE_NODES (default 75).
+    Experimental mode: 5 hops, MAX_EXPERIMENTAL_NODES (default 160).
+    """
+
     def __init__(self, etherscan: EtherscanClient, max_stable_nodes: int, max_experimental_nodes: int) -> None:
         self.etherscan = etherscan
         self.max_stable_nodes = max_stable_nodes
@@ -30,40 +46,75 @@ class GraphBuilder:
     ) -> GraphBuildResult:
         max_nodes = self.max_experimental_nodes if mode == InvestigationMode.experimental else self.max_stable_nodes
         max_txs_per_address = 10 if mode == InvestigationMode.experimental else 6
+        max_hops = 5 if mode == InvestigationMode.experimental else 3
+        effective_depth = min(depth, max_hops)
+
         root = normalize_address(root_address)
-        nodes: dict[str, GraphNode] = {
+        node_map: dict[str, GraphNode] = {
             root: GraphNode(id=root, address=root, label=short_address(root), hop=0, source="target")
         }
-        edges: dict[str, GraphEdge] = {}
+        edge_map: dict[str, GraphEdge] = {}
         raw_transactions: list[dict] = []
+
+        # Aggregation tracking for GraphData metadata
+        first_seen: dict[str, int] = {root: 0}
+        last_seen: dict[str, int] = {root: 0}
+        total_in: dict[str, float] = defaultdict(float)
+        total_out: dict[str, float] = defaultdict(float)
+        tx_count: dict[str, int] = Counter()
+        risk_tags: dict[str, list[str]] = defaultdict(list)
+
         queue: deque[tuple[str, int]] = deque([(root, 0)])
         visited: set[str] = set()
 
-        while queue and len(nodes) < max_nodes:
+        while queue and len(node_map) < max_nodes:
             address, hop = queue.popleft()
-            if address in visited or hop >= depth:
+            if address in visited or hop >= effective_depth:
                 continue
             visited.add(address)
-            txs = await self.etherscan.get_transactions_for_address(address, offset=max_txs_per_address)
+
+            txs = await self.etherscan.get_transactions(address, offset=max_txs_per_address)
             raw_transactions.extend(txs)
+
             for tx in txs:
                 sender = (tx.get("from") or "").lower()
                 recipient = (tx.get("to") or "").lower()
                 if not sender or not recipient:
                     continue
+
+                timestamp = int(tx.get("timestamp") or 0)
+                value_eth = float(tx.get("value_eth") or 0)
+
+                # Update aggregation counters
+                total_out[sender] += value_eth
+                total_in[recipient] += value_eth
+                tx_count[sender] += 1
+                tx_count[recipient] += 1
+
+                if timestamp > 0:
+                    if sender not in first_seen or timestamp < first_seen[sender]:
+                        first_seen[sender] = timestamp
+                    if sender not in last_seen or timestamp > last_seen[sender]:
+                        last_seen[sender] = timestamp
+                    if recipient not in first_seen or timestamp < first_seen[recipient]:
+                        first_seen[recipient] = timestamp
+                    if recipient not in last_seen or timestamp > last_seen[recipient]:
+                        last_seen[recipient] = timestamp
+
                 peer = recipient if sender == address else sender
-                if peer not in nodes and len(nodes) < max_nodes:
-                    nodes[peer] = GraphNode(id=peer, address=peer, label=short_address(peer), hop=hop + 1)
+                if peer not in node_map and len(node_map) < max_nodes:
+                    node_map[peer] = GraphNode(id=peer, address=peer, label=short_address(peer), hop=hop + 1)
                     queue.append((peer, hop + 1))
+
                 edge_id = f"{tx.get('hash', '')}:{sender}:{recipient}"
-                if edge_id not in edges:
-                    edges[edge_id] = GraphEdge(
+                if edge_id not in edge_map:
+                    edge_map[edge_id] = GraphEdge(
                         id=edge_id,
                         source=sender,
                         target=recipient,
                         tx_hash=tx.get("hash", ""),
-                        timestamp=int(tx.get("timestamp") or 0),
-                        value_eth=float(tx.get("value_eth") or 0),
+                        timestamp=timestamp,
+                        value_eth=value_eth,
                         hop=hop + 1,
                         direction="out" if sender == address else "in",
                         metadata={
@@ -73,9 +124,18 @@ class GraphBuilder:
                         },
                     )
 
+        graph = InvestigationGraph(
+            investigation_id=investigation_id,
+            nodes=list(node_map.values()),
+            edges=list(edge_map.values()),
+        )
+
+        graph_data = self._build_graph_data(node_map, edge_map, first_seen, last_seen, total_in, total_out, tx_count, risk_tags)
+
         return GraphBuildResult(
-            graph=InvestigationGraph(investigation_id=investigation_id, nodes=list(nodes.values()), edges=list(edges.values())),
+            graph=graph,
             raw_transactions=raw_transactions,
+            graph_data=graph_data,
         )
 
     async def build_from_transaction_hash(
@@ -86,7 +146,7 @@ class GraphBuilder:
         depth: int,
         mode: InvestigationMode,
     ) -> GraphBuildResult:
-        tx = await self.etherscan.get_transaction_by_hash(tx_hash)
+        tx = await self.etherscan.get_transaction_details(tx_hash)
         root = tx.get("from") or tx.get("to")
         if not root:
             raise ValueError("Transaction did not return a usable sender or recipient.")
@@ -116,6 +176,54 @@ class GraphBuilder:
                     ),
                 )
         return result
+
+    @staticmethod
+    def _build_graph_data(
+        node_map: dict[str, GraphNode],
+        edge_map: dict[str, GraphEdge],
+        first_seen: dict[str, int],
+        last_seen: dict[str, int],
+        total_in: dict[str, float],
+        total_out: dict[str, float],
+        tx_count: dict[str, int],
+        risk_tags: dict[str, list[str]],
+    ) -> GraphData:
+        """Build GraphData with enriched node and edge dicts plus metadata."""
+        nodes = []
+        for address, node in node_map.items():
+            nodes.append({
+                "address": address,
+                "first_seen": first_seen.get(address, 0),
+                "last_seen": last_seen.get(address, 0),
+                "total_in": round(total_in.get(address, 0), 8),
+                "total_out": round(total_out.get(address, 0), 8),
+                "tx_count": tx_count.get(address, 0),
+                "risk_tags": risk_tags.get(address, []),
+                "hop": node.hop,
+                "source": node.source,
+                "label": node.label,
+            })
+
+        edges = []
+        for _edge_id, edge in edge_map.items():
+            edges.append({
+                "tx_hash": edge.tx_hash,
+                "from": edge.source,
+                "to": edge.target,
+                "value": edge.value_eth,
+                "timestamp": edge.timestamp,
+                "block_number": edge.metadata.get("block_number", ""),
+            })
+
+        max_hop = max((n.hop for n in node_map.values()), default=0)
+        metadata = {
+            "node_count": len(nodes),
+            "edge_count": len(edges),
+            "max_hop": max_hop,
+            "total_value_eth": round(sum(e.value_eth for e in edge_map.values()), 8),
+        }
+
+        return GraphData(nodes=nodes, edges=edges, metadata=metadata)
 
 
 def short_address(address: str) -> str:

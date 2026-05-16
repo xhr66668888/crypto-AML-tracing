@@ -18,13 +18,13 @@ from app.domain.patterns import PatternAnalyzer
 from app.domain.scoring import decide_disposition, recommended_actions, risk_level
 from app.domain.scoring import RiskScoringEngine
 from app.domain.validators import normalize_address, normalize_hash
-from app.storage.memory import InMemoryStore
+from app.storage.base import StorageAdapter
 
 
 class ScreeningService:
     def __init__(
         self,
-        store: InMemoryStore,
+        store: StorageAdapter,
         graph_builder: GraphBuilder,
         scoring: RiskScoringEngine,
         patterns: PatternAnalyzer,

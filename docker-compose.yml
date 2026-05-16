@@ -1,3 +1,12 @@
+# docker-compose.yml — Optional infrastructure for Cregis ETH AML Tracing
+#
+# Usage:
+#   docker compose up -d postgres redis     # optional infra only
+#   docker compose up -d                    # everything (api + web + infra)
+#
+# The API defaults to in-memory storage. PostgreSQL is available for
+# when db-storage-engineer flips the adapter.
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -25,6 +34,43 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    ports:
+      - "8000:8000"
+    environment:
+      DEMO_MODE: "true"
+      CORS_ORIGINS: "http://localhost:5173,http://localhost:3000"
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: false
+      redis:
+        condition: service_healthy
+        required: false
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    ports:
+      - "5173:80"
+    environment:
+      VITE_API_BASE: "http://localhost:8000"
+    depends_on:
+      api:
+        condition: service_healthy
+        required: false
 
 volumes:
   postgres-data:

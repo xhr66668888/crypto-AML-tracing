@@ -18,7 +18,7 @@ from app.domain.patterns import PatternAnalyzer
 from app.domain.risk_intel import RiskIntelAggregator
 from app.domain.scoring import RiskScoringEngine
 from app.domain.validators import detect_target_type
-from app.ml.raindrop_aml import RaindropAmlScorer
+from app.ml.raindrop_scorer import RaindropAmlScorer
 from app.services.screening import ScreeningService
 from app.storage.memory import InMemoryStore
 

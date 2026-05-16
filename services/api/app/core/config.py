@@ -25,6 +25,10 @@ class Settings:
     demo_mode: bool = True
     max_stable_nodes: int = 75
     max_experimental_nodes: int = 160
+    etherscan_timeout_seconds: float = 10.0
+    goplus_timeout_seconds: float = 10.0
+    deepseek_timeout_seconds: float = 30.0
+    connector_max_retries: int = 2
 
 
 def get_settings() -> Settings:
@@ -42,4 +46,8 @@ def get_settings() -> Settings:
         demo_mode=demo_mode,
         max_stable_nodes=int(os.getenv("MAX_STABLE_NODES", "75")),
         max_experimental_nodes=int(os.getenv("MAX_EXPERIMENTAL_NODES", "160")),
+        etherscan_timeout_seconds=float(os.getenv("ETHERSCAN_TIMEOUT_SECONDS", "10")),
+        goplus_timeout_seconds=float(os.getenv("GOPLUS_TIMEOUT_SECONDS", "10")),
+        deepseek_timeout_seconds=float(os.getenv("DEEPSEEK_TIMEOUT_SECONDS", "30")),
+        connector_max_retries=int(os.getenv("CONNECTOR_MAX_RETRIES", "2")),
     )

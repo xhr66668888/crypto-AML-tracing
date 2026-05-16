@@ -4,34 +4,51 @@
 
 本项目是给香港公司 Cregis 定制的本地优先 Ethereum 风控与反洗钱工作台。第一版有两个入口：出金/入金前实时筛查 ETH、USDT、USDC 转账；以及对 Ethereum address 或 transaction hash 做深度调查，系统自动展开交易关系图，聚合风险情报，计算规则风险分、Pattern Analysis 信号和 Raindrop 风险分，并生成英文 AML 调查报告。
 
-当前实现是 MVP 工程骨架，目标是让不同程序员或 AI model 可以并行开发：
+当前实现是 MVP 工程骨架，由 10 个 OpenCode subagent 并行交付：2 个脑力 subagent（架构 + 风险评审）在 [`opencode.json`](../opencode.json) 中锁定到 Codex GPT 5.5（`reasoningEffort: high`）；8 个执行 subagent 不写 `model:`，沿用 OpenCode 默认模型（当前为 `mimo-v2.5-pro`）。
 
 - 后端提供稳定 API、demo 数据、外部 API 接入边界、实时筛查接口、Pattern Analysis 和评分接口。
 - 前端提供可运行的筛查/调查工作台、图谱、证据、模式信号、来源命中和报告视图。
 - Raindrop 模型先以稳定接口接入，真实神经网络迁移作为独立 ML 任务继续推进。
 
+Subagent 定义见 [`.opencode/agents/`](../.opencode/agents)，分工见 [`docs/team-assignments.md`](team-assignments.md)，一次性 OpenCode 调度方式见 [`.opencode/README.md`](../.opencode/README.md)。
+
 ## 2. 目录结构
 
 ```text
-apps/web/                  React + Vite 前端工作台
+apps/web/                  React + Vite 前端工作台（web-workbench-engineer）
 services/api/              FastAPI 后端服务
-services/api/app/connectors 第三方 API 接入：Etherscan、GoPlus
+services/api/app/connectors 第三方 API 接入：Etherscan、GoPlus（connector-engineer）
 services/api/app/domain     调查、图谱、Pattern Analysis、风险情报、评分核心逻辑
-services/api/app/ml         Raindrop AML 风险层接口
-services/api/app/services   筛查、调查编排与报告生成
-services/api/app/storage    存储适配层，当前为内存实现
-services/ml/raindrop_aml    后续真实 Raindrop 模型迁移工作区
-docs/                      架构、数据库、团队分工和开发文档
-infra/scripts/             本地运行脚本
-.github/workflows/         CI 配置
+                            （graph-pattern-engineer、risk-intel-engineer）
+services/api/app/ml         Raindrop AML 风险层接口（raindrop-ml-engineer）
+services/api/app/services   筛查、调查编排与报告生成（report-engineer）
+services/api/app/storage    存储适配层，当前为内存实现（db-storage-engineer）
+services/ml/raindrop_aml    后续真实 Raindrop 模型迁移工作区（raindrop-ml-engineer）
+docs/                      架构、数据库、subagent 分工和开发文档
+infra/scripts/             本地运行脚本（qa-devops-engineer）
+.github/workflows/         CI 配置（qa-devops-engineer）
+.opencode/agents/          10 个 OpenCode subagent 定义
+.opencode/README.md        OpenCode 调用与并行 kickoff 说明
+opencode.json              所有 subagent 的模型 / 推理强度集中配置
 ```
 
 已删除并忽略的目录：
 
 - `Raindrop/`：研究源码已阅读，后续只保留迁移说明，不把完整研究仓库作为业务源码提交。
-- `TraeSkill/`、`awesome-skills/`、`industrial-dev-skillpack`：本地已安装技能包，不属于产品代码。
+- `TraeSkill/`、`awesome-skills/`、`industrial-dev-skillpack`：原始本地技能包已清理。
+- `.cursor/`：Cursor 阶段的 agents 与 skills 已迁出，全部以 OpenCode subagent 形式承载（`.opencode/agents/`）。
 
 ## 3. 本地运行
+
+推荐一键启动：
+
+```bash
+bash scripts/boot-demo.sh
+```
+
+该脚本自动复制环境变量、安装依赖、启动后端（端口 8000）和前端（端口 5173）。
+
+手动启动：
 
 复制环境变量模板：
 
@@ -67,7 +84,24 @@ npm run dev
 
 默认 `DEMO_MODE=true`，没有真实 API key 也能生成演示调查图谱和风险报告。
 
-## 4. 环境变量
+## 4.1 Smoke 测试
+
+运行 V1 端点 smoke 测试：
+
+```bash
+bash scripts/smoke.sh
+```
+
+覆盖：`/health`、筛查、调查 CRUD、图谱、风险、报告、watchlist 导入、直接命中 `hold_for_manual_review` 验证。
+
+## 4.2 CI
+
+GitHub Actions (`.github/workflows/ci.yml`) 在 push/PR 到 `main` 时自动运行：
+- `PYTHONPATH=services/api pytest -q services/api/app/tests`
+- `cd apps/web && npm run build`
+- Smoke 测试
+
+## 5. 环境变量
 
 主要配置在 `.env.example`：
 
@@ -184,15 +218,17 @@ npm run build
 - 本地 API `/health` 正常。
 - demo mode 下能生成调查图谱、风险结果和本地报告。
 
-## 9. 团队协作规则
+## 9. Subagent 协作规则
 
-分工见 `docs/team-assignments.md`。协作原则：
+10 个 subagent 的分工见 [`docs/team-assignments.md`](team-assignments.md)。协作原则：
 
-- 每个程序员只改自己负责的模块。
-- 跨模块改动必须先更新 API/schema 文档。
-- 提交前必须跑对应测试。
-- 不提交 `.env`、依赖目录、构建产物、技能包或研究源码目录。
+- 任何动 API/schema/`.env`/模块边界的改动，必须先由 `aml-architect` 更新契约，执行 subagent 才能落地。
+- 任何动 `scoring.py`、`patterns.py`、`risk_intel.py`、`reporting.py` 的改动，合并前必须拿到 `risk-logic-reviewer` 的 `approved` verdict。
+- 执行 subagent 只改自己 OWNED 的文件；跨界改动经 `aml-architect` 路由。
+- 提交前必须跑对应测试：后端 `PYTHONPATH=services/api pytest -q`，前端 `cd apps/web && npm run build`。
+- 不提交 `.env`、依赖目录、构建产物或研究源码目录。
 - DeepSeek 报告必须保留原始风险分和证据来源，不允许让 AI 重写最终风险事实。
+- demo 数据不得在任何文档/UI/报告中被描述成真实命中。
 
 ## 10. 下一阶段任务
 

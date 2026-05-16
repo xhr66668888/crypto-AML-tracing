@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import csv
+import io
+import json
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -7,25 +11,41 @@ from app.connectors.etherscan import EtherscanClient
 from app.connectors.goplus import GoPlusClient
 from app.core.config import get_settings
 from app.domain.graph_builder import GraphBuilder
-from app.domain.models import InvestigationCreate, ReportRequest, ScreeningTransactionCreate, WatchlistEntry
+from app.domain.models import (
+    DIRECT_HIT_CATEGORIES,
+    InvestigationCreate,
+    ReportRequest,
+    ScreeningTransactionCreate,
+    WatchlistEntry,
+    WatchlistImportRequest,
+    WatchlistImportResult,
+    WatchlistImportError,
+)
 from app.domain.patterns import PatternAnalyzer
 from app.domain.risk_intel import RiskIntelAggregator
 from app.domain.scoring import RiskScoringEngine
-from app.ml.raindrop_aml import RaindropAmlScorer
+from app.ml.raindrop_scorer import RaindropAmlScorer
 from app.services.investigation import InvestigationService
 from app.services.reporting import DeepSeekReporter
 from app.services.screening import ScreeningService
-from app.storage.memory import InMemoryStore
+from app.storage import get_store
 
 settings = get_settings()
-store = InMemoryStore()
+store = get_store()
 etherscan = EtherscanClient(
     api_key=settings.etherscan_api_key,
     base_url=settings.etherscan_base_url,
     chain_id=settings.chain_id,
     demo_mode=settings.demo_mode,
+    timeout_seconds=settings.etherscan_timeout_seconds,
+    max_retries=settings.connector_max_retries,
 )
-goplus = GoPlusClient(token=settings.goplus_token, demo_mode=settings.demo_mode)
+goplus = GoPlusClient(
+    token=settings.goplus_token,
+    demo_mode=settings.demo_mode,
+    timeout_seconds=settings.goplus_timeout_seconds,
+    max_retries=settings.connector_max_retries,
+)
 intel = RiskIntelAggregator(goplus)
 raindrop = RaindropAmlScorer()
 patterns = PatternAnalyzer()
@@ -110,6 +130,92 @@ async def list_watchlist_entries():
 @app.post("/api/v1/watchlists")
 async def upsert_watchlist_entry(payload: WatchlistEntry):
     return store.upsert_watchlist_entry(payload)
+
+
+@app.post("/api/v1/watchlists/import")
+async def import_watchlist(payload: WatchlistImportRequest):
+    errors: list[WatchlistImportError] = []
+    imported = 0
+    updated = 0
+    skipped = 0
+    direct_hit_count = 0
+
+    if payload.replace:
+        store.clear_watchlist()
+
+    if payload.format == "csv":
+        reader = csv.DictReader(io.StringIO(payload.payload))
+        for row_idx, row in enumerate(reader, start=1):
+            try:
+                address = row.get("address", "").strip()
+                if not address:
+                    raise ValueError("missing address")
+                entry = WatchlistEntry(
+                    address=address,
+                    label=row.get("label", "").strip() or "unlabeled",
+                    category=row.get("category", "").strip() or payload.default_category,
+                    severity=row.get("severity", "").strip() or payload.default_severity,
+                    notes=row.get("notes", "").strip(),
+                )
+                try:
+                    store.get_watchlist_entry(entry.address.lower())
+                    is_update = True
+                except KeyError:
+                    is_update = False
+                store.upsert_watchlist_entry(entry)
+                if is_update:
+                    updated += 1
+                else:
+                    imported += 1
+                if entry.category.lower() in DIRECT_HIT_CATEGORIES:
+                    direct_hit_count += 1
+            except Exception as exc:
+                errors.append(WatchlistImportError(row=row_idx, reason=str(exc)))
+    elif payload.format == "json":
+        try:
+            rows = json.loads(payload.payload)
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid JSON: {exc}") from exc
+        for row_idx, row in enumerate(rows, start=1):
+            try:
+                address = row.get("address", "").strip()
+                if not address:
+                    raise ValueError("missing address")
+                entry = WatchlistEntry(
+                    address=address,
+                    label=row.get("label", "").strip() or "unlabeled",
+                    category=row.get("category", "").strip() or payload.default_category,
+                    severity=row.get("severity", payload.default_severity),
+                    notes=row.get("notes", "").strip(),
+                )
+                try:
+                    store.get_watchlist_entry(entry.address.lower())
+                    is_update = True
+                except KeyError:
+                    is_update = False
+                store.upsert_watchlist_entry(entry)
+                if is_update:
+                    updated += 1
+                else:
+                    imported += 1
+                if entry.category.lower() in DIRECT_HIT_CATEGORIES:
+                    direct_hit_count += 1
+            except Exception as exc:
+                errors.append(WatchlistImportError(row=row_idx, reason=str(exc)))
+
+    return WatchlistImportResult(
+        imported=imported,
+        updated=updated,
+        skipped=skipped,
+        direct_hit_count=direct_hit_count,
+        errors=errors,
+    )
+
+
+@app.get("/api/v1/investigations/{investigation_id}/reports")
+async def list_reports(investigation_id: str):
+    record = _get_record(investigation_id)
+    return record.reports
 
 
 def _get_record(investigation_id: str):

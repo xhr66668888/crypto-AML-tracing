@@ -38,3 +38,22 @@ OFAC/sanctions, PEP, Circle/Tether/stablecoin blacklist, and local critical watc
 - API keys are read from `.env` and never committed.
 - DeepSeek receives full investigation context only when `DEEPSEEK_API_KEY` is configured and a report is requested.
 - The API is intended to listen on localhost in production packaging unless Cregis explicitly enables network access.
+
+## Subagent Ownership
+
+Module boundaries map 1:1 to OpenCode subagents defined under [`.opencode/agents/`](../.opencode/agents). Two brain agents are pinned to **Codex GPT 5.5 with `reasoningEffort: high`** via [`opencode.json`](../opencode.json); the eight execution agents have no model override and **inherit the OpenCode default** (e.g. `mimo-v2.5-pro`).
+
+| Module / Concern | Subagent | Model |
+| --- | --- | --- |
+| API contracts, schema boundary, `.env`, module boundaries, release | `aml-architect` | Codex GPT 5.5, high |
+| Scoring, pattern, direct-hit, report audit (read-only) | `risk-logic-reviewer` | Codex GPT 5.5, high |
+| `services/api/app/connectors/` (Etherscan, GoPlus, DeepSeek HTTP) | `connector-engineer` | OpenCode default |
+| `services/api/app/domain/graph_builder.py` and `patterns.py` | `graph-pattern-engineer` | OpenCode default |
+| `services/api/app/domain/risk_intel.py`, rule-score side of `scoring.py`, watchlist | `risk-intel-engineer` | OpenCode default |
+| `services/api/app/ml/`, `services/ml/raindrop_aml/` | `raindrop-ml-engineer` | OpenCode default |
+| `services/api/app/services/reporting.py` | `report-engineer` | OpenCode default |
+| `apps/web/` | `web-workbench-engineer` | OpenCode default |
+| `infra/scripts/`, `.github/workflows/`, `docker-compose.yml`, `pytest.ini`, smoke | `qa-devops-engineer` | OpenCode default |
+| `docs/database/schema.sql`, `services/api/app/storage/` | `db-storage-engineer` | OpenCode default |
+
+Coordination: every change touching API / schema / `.env` / module boundaries goes through `aml-architect` first. Every change touching scoring, patterns, direct-hit, or report content needs a `risk-logic-reviewer` verdict before merge. Execution agents stay in their owned files; cross-boundary changes are routed through `aml-architect`. The `RaindropAmlScorer.predict(graph)` interface is frozen until `aml-architect` approves a change. Detailed roles and deliverables: [`docs/team-assignments.md`](team-assignments.md).

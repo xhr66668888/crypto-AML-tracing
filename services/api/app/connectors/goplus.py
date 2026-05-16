@@ -1,11 +1,17 @@
+"""GoPlus Security API client with retries, structured errors, and demo fixtures."""
+
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from dataclasses import dataclass
 from typing import Any
 
 import httpx
 
+from app.connectors.base import ConnectorError, new_request_id
+
+PROVIDER = "goplus"
 
 HIGH_RISK_BEHAVIORS = {
     "money_laundering",
@@ -21,20 +27,127 @@ HIGH_RISK_BEHAVIORS = {
 
 @dataclass
 class GoPlusClient:
+    """GoPlus Security API connector.
+
+    In demo mode, returns deterministic security data derived from the
+    address hash so that screenings are reproducible without network access.
+    """
+
     token: str = ""
     demo_mode: bool = True
+    timeout_seconds: float = 10.0
+    max_retries: int = 2
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
     async def get_address_security(self, address: str, chain_id: str = "1") -> dict[str, Any]:
+        """Fetch security assessment for an address."""
         if self.demo_mode or not self.token:
             return self._demo_security(address)
 
+        params = {"chain_id": chain_id}
         headers = {"Authorization": f"Bearer {self.token}"}
         url = f"https://api.gopluslabs.io/api/v1/address_security/{address}"
-        async with httpx.AsyncClient(timeout=20) as client:
-            response = await client.get(url, params={"chain_id": chain_id}, headers=headers)
-            response.raise_for_status()
-            payload = response.json()
+        payload = await self._get(url, params=params, headers=headers)
         return payload.get("result") or payload
+
+    async def get_token_security(self, token_address: str, chain_id: str = "1") -> dict[str, Any]:
+        """Fetch security assessment for a token contract."""
+        if self.demo_mode or not self.token:
+            return self._demo_token_security(token_address)
+
+        params = {"chain_id": chain_id}
+        headers = {"Authorization": f"Bearer {self.token}"}
+        url = f"https://api.gopluslabs.io/api/v1/token_security/{token_address}"
+        payload = await self._get(url, params=params, headers=headers)
+        return payload.get("result") or payload
+
+    # ------------------------------------------------------------------
+    # HTTP with retries
+    # ------------------------------------------------------------------
+
+    async def _get(
+        self,
+        url: str,
+        params: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        """GET with bounded retry on 429/5xx/timeouts."""
+        rid = new_request_id()
+        last_exc: ConnectorError | None = None
+        for attempt in range(1, self.max_retries + 1):
+            try:
+                async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+                    response = await client.get(url, params=params, headers=headers)
+
+                if response.status_code == 429:
+                    raise ConnectorError(
+                        provider=PROVIDER,
+                        status_code=429,
+                        message="Rate limited by GoPlus",
+                        request_id=rid,
+                        retryable=True,
+                    )
+                if response.status_code >= 500:
+                    raise ConnectorError(
+                        provider=PROVIDER,
+                        status_code=response.status_code,
+                        message=f"GoPlus server error: {response.text[:200]}",
+                        request_id=rid,
+                        retryable=True,
+                    )
+                if response.status_code >= 400:
+                    raise ConnectorError(
+                        provider=PROVIDER,
+                        status_code=response.status_code,
+                        message=f"GoPlus client error: {response.text[:200]}",
+                        request_id=rid,
+                        retryable=False,
+                    )
+
+                payload = response.json()
+                # GoPlus uses code=1 for success
+                code = payload.get("code", 0)
+                if code != 1:
+                    raise ConnectorError(
+                        provider=PROVIDER,
+                        status_code=200,
+                        message=f"GoPlus API error (code={code}): {payload.get('message', 'Unknown')}",
+                        request_id=rid,
+                        retryable=False,
+                        raw=payload,
+                    )
+                return payload
+
+            except httpx.TimeoutException:
+                last_exc = ConnectorError(
+                    provider=PROVIDER,
+                    status_code=None,
+                    message=f"Timeout after {self.timeout_seconds}s (attempt {attempt}/{self.max_retries})",
+                    request_id=rid,
+                    retryable=True,
+                )
+            except httpx.HTTPError as exc:
+                last_exc = ConnectorError(
+                    provider=PROVIDER,
+                    status_code=None,
+                    message=f"HTTP error: {exc} (attempt {attempt}/{self.max_retries})",
+                    request_id=rid,
+                    retryable=True,
+                )
+            except ConnectorError:
+                raise  # already structured
+
+            if attempt < self.max_retries:
+                await asyncio.sleep(0.5 * (2 ** (attempt - 1)))
+
+        raise last_exc  # type: ignore[misc]
+
+    # ------------------------------------------------------------------
+    # Demo fixtures
+    # ------------------------------------------------------------------
 
     def _demo_security(self, address: str) -> dict[str, Any]:
         bucket = int(hashlib.sha256(address.encode()).hexdigest()[:2], 16) % 10
@@ -55,5 +168,26 @@ class GoPlusClient:
             "doubt_list": doubt,
             "trust_list": "1" if bucket == 9 else "0",
             "malicious_behavior": behaviors,
+            "source": "demo-goplus",
+        }
+
+    def _demo_token_security(self, token_address: str) -> dict[str, Any]:
+        """Deterministic token security data for demo mode."""
+        bucket = int(hashlib.sha256(f"token:{token_address}".encode()).hexdigest()[:2], 16) % 10
+        is_honeypot = bucket in {0, 1}
+        is_open_source = bucket not in {0, 1, 2}
+        return {
+            "token_address": token_address.lower(),
+            "token_name": f"DemoToken-{bucket}",
+            "token_symbol": f"DT{bucket}",
+            "is_honeypot": "1" if is_honeypot else "0",
+            "is_open_source": "1" if is_open_source else "0",
+            "owner_change_balance": "1" if bucket < 3 else "0",
+            "hidden_owner": "1" if bucket == 0 else "0",
+            "selfdestruct": "1" if bucket == 0 else "0",
+            "external_call": "1" if bucket < 4 else "0",
+            "trust_list": "1" if bucket == 9 else "0",
+            "cannot_sell_all": "1" if is_honeypot else "0",
+            "owner_can_pause": "1" if bucket < 3 else "0",
             "source": "demo-goplus",
         }

@@ -4,11 +4,11 @@ from app.domain.graph_builder import GraphBuilder
 from app.domain.models import InvestigationCreate, TargetType
 from app.domain.scoring import RiskScoringEngine
 from app.domain.validators import detect_target_type, normalize_address, normalize_hash
-from app.storage.memory import InMemoryStore
+from app.storage.base import StorageAdapter
 
 
 class InvestigationService:
-    def __init__(self, store: InMemoryStore, graph_builder: GraphBuilder, scoring: RiskScoringEngine) -> None:
+    def __init__(self, store: StorageAdapter, graph_builder: GraphBuilder, scoring: RiskScoringEngine) -> None:
         self.store = store
         self.graph_builder = graph_builder
         self.scoring = scoring

@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class InvestigationMode(str, Enum):
@@ -199,11 +199,50 @@ class ReportResponse(BaseModel):
 
 
 class WatchlistEntry(BaseModel):
-    address: str
+    address: str = Field(..., min_length=42, max_length=42)
     label: str
     category: str = "manual"
     severity: RiskLevel = RiskLevel.high
     notes: str = ""
+
+
+DIRECT_HIT_CATEGORIES: frozenset[str] = frozenset(
+    {"ofac", "sanctions", "sanctioned", "pep", "circle_blacklist", "tether_blacklist", "stablecoin_blacklist"}
+)
+
+
+class WatchlistImportRequest(BaseModel):
+    format: Literal["csv", "json"] = "csv"
+    payload: str
+    default_category: str = "manual"
+    default_severity: RiskLevel = RiskLevel.high
+    replace: bool = False
+
+
+class WatchlistImportError(BaseModel):
+    row: int
+    reason: str
+
+
+class WatchlistImportResult(BaseModel):
+    imported: int
+    updated: int
+    skipped: int
+    direct_hit_count: int
+    errors: list[WatchlistImportError] = Field(default_factory=list)
+
+
+class ErrorPayload(BaseModel):
+    code: str
+    message: str
+    category: Literal["validation", "not_found", "conflict", "upstream", "internal"]
+    retryable: bool = False
+    details: dict[str, Any] = Field(default_factory=dict)
+    trace_id: str | None = None
+
+
+class ErrorResponse(BaseModel):
+    error: ErrorPayload
 
 
 class InvestigationRecord(BaseModel):

@@ -12,7 +12,7 @@ from app.domain.models import (
 )
 from app.domain.patterns import PatternAnalyzer
 from app.domain.risk_intel import SEVERITY_WEIGHTS, RiskIntelAggregator
-from app.ml.raindrop_aml import RaindropAmlScorer
+from app.ml.raindrop_scorer import RaindropAmlScorer
 
 
 class RiskScoringEngine:
@@ -62,8 +62,16 @@ class RiskScoringEngine:
         direct_hit_score = self._direct_hit_score(source_hits)
         base_rule_score = max([node.risk_score for node in graph.nodes] + [0]) + exposure_score
         rule_score = min(100.0, max(base_rule_score, pattern_score, direct_hit_score))
-        raindrop_score, raindrop_features = self.raindrop.predict(graph)
-        final_score = min(100.0, max(rule_score, 0.65 * rule_score + 0.35 * raindrop_score))
+        raindrop_result = self.raindrop.predict(graph)
+        if isinstance(raindrop_result, tuple):
+            raindrop_score, raindrop_features = raindrop_result
+        else:
+            raindrop_score = raindrop_result.score
+            raindrop_features = raindrop_result.features
+        # final_risk_score = max(rule_score, raindrop_score)
+        # raindrop_score is advisory — it can raise the floor but never
+        # overrides source-backed evidence captured in rule_score.
+        final_score = min(100.0, max(rule_score, raindrop_score))
         top_paths = self._top_risk_paths(graph)
         disposition = decide_disposition(final_score, source_hits, pattern_signals)
         actions = recommended_actions(disposition, source_hits, pattern_signals)
@@ -141,11 +149,19 @@ class RiskScoringEngine:
 
 
 def risk_level(score: float) -> RiskLevel:
-    if score >= 85:
+    """Map a 0–100 numeric score to a risk level.
+
+    Boundaries (spec):
+    - low: 0–30
+    - medium: 31–60
+    - high: 61–85
+    - critical: 86–100
+    """
+    if score >= 86:
         return RiskLevel.critical
-    if score >= 65:
+    if score >= 61:
         return RiskLevel.high
-    if score >= 35:
+    if score >= 31:
         return RiskLevel.medium
     return RiskLevel.low
 

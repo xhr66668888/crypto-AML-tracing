@@ -209,3 +209,15 @@ CREATE INDEX IF NOT EXISTS idx_risk_source_hits_address ON risk_source_hits (add
 CREATE INDEX IF NOT EXISTS idx_pattern_signals_investigation ON pattern_signals (investigation_id);
 CREATE INDEX IF NOT EXISTS idx_pattern_signals_screening ON pattern_signals (screening_event_id);
 CREATE INDEX IF NOT EXISTS idx_api_cache_provider ON api_cache (provider);
+CREATE INDEX IF NOT EXISTS idx_api_cache_expires_at ON api_cache (expires_at);
+CREATE INDEX IF NOT EXISTS idx_investigations_status ON investigations (status);
+CREATE INDEX IF NOT EXISTS idx_investigations_created_at ON investigations (created_at);
+CREATE INDEX IF NOT EXISTS idx_risk_source_hits_investigation ON risk_source_hits (investigation_id);
+CREATE INDEX IF NOT EXISTS idx_risk_source_hits_screening ON risk_source_hits (screening_event_id);
+CREATE INDEX IF NOT EXISTS idx_network_metrics_investigation ON network_metrics (investigation_id);
+CREATE INDEX IF NOT EXISTS idx_ml_features_investigation ON ml_features (investigation_id);
+CREATE INDEX IF NOT EXISTS idx_ml_predictions_investigation ON ml_predictions (investigation_id);
+CREATE INDEX IF NOT EXISTS idx_ai_reports_investigation ON ai_reports (investigation_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs (created_at);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_actor ON audit_logs (actor);
+CREATE INDEX IF NOT EXISTS idx_source_sync_runs_source ON source_sync_runs (source);

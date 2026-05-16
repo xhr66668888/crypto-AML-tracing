@@ -1,0 +1,8 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "permission": "allow",
+  "agent": {
+    "aml-architect":       { "model": "opencode/gpt-5.5-codex", "reasoningEffort": "high", "textVerbosity": "low" },
+    "risk-logic-reviewer": { "model": "opencode/gpt-5.5-codex", "reasoningEffort": "high", "textVerbosity": "low" }
+  }
+}
