@@ -24,6 +24,24 @@ class RiskLevel(str, Enum):
     critical = "critical"
 
 
+class RiskDisposition(str, Enum):
+    allow = "allow"
+    review = "review"
+    hold_for_manual_review = "hold_for_manual_review"
+    reject = "reject"
+
+
+class TransferDirection(str, Enum):
+    inbound = "inbound"
+    outbound = "outbound"
+
+
+class AssetSymbol(str, Enum):
+    eth = "ETH"
+    usdt = "USDT"
+    usdc = "USDC"
+
+
 class InvestigationCreate(BaseModel):
     target: str = Field(..., min_length=42, max_length=66)
     chain_id: str = "1"
@@ -84,6 +102,37 @@ class RiskFinding(BaseModel):
     evidence: str
     source: str
     hop: int | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class RiskSourceHit(BaseModel):
+    source: str
+    category: str
+    severity: RiskLevel
+    address: str
+    label: str
+    evidence: str
+    confidence: float = Field(1.0, ge=0, le=1)
+    source_updated_at: datetime | None = None
+    direct_hit: bool = False
+    raw_payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class PatternSignal(BaseModel):
+    name: str
+    severity: RiskLevel
+    score: float
+    subject: str
+    evidence: str
+    confidence: float = Field(0.75, ge=0, le=1)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class NetworkMetric(BaseModel):
+    name: str
+    value: float
+    subject: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class RiskResponse(BaseModel):
@@ -95,6 +144,45 @@ class RiskResponse(BaseModel):
     findings: list[RiskFinding]
     top_risk_paths: list[list[str]]
     feature_summary: dict[str, float | int | str]
+    pattern_signals: list[PatternSignal] = Field(default_factory=list)
+    source_hits: list[RiskSourceHit] = Field(default_factory=list)
+    network_metrics: list[NetworkMetric] = Field(default_factory=list)
+    disposition_hint: RiskDisposition = RiskDisposition.allow
+    recommended_actions: list[str] = Field(default_factory=list)
+
+
+class ScreeningTransactionCreate(BaseModel):
+    chain_id: str = "1"
+    asset: AssetSymbol = AssetSymbol.eth
+    direction: TransferDirection = TransferDirection.outbound
+    from_address: str = Field(..., min_length=42, max_length=42)
+    to_address: str = Field(..., min_length=42, max_length=42)
+    amount: float = Field(..., ge=0)
+    customer_id: str | None = None
+    team_id: str | None = None
+    tx_hash: str | None = Field(None, min_length=66, max_length=66)
+    timestamp: int | None = None
+
+
+class ScreeningResponse(BaseModel):
+    id: str
+    chain_id: str
+    asset: AssetSymbol
+    direction: TransferDirection
+    from_address: str
+    to_address: str
+    amount: float
+    risk_score: float
+    risk_level: RiskLevel
+    disposition: RiskDisposition
+    findings: list[RiskFinding]
+    pattern_signals: list[PatternSignal]
+    source_hits: list[RiskSourceHit]
+    evidence_summary: list[str]
+    recommended_actions: list[str]
+    data_freshness: dict[str, str]
+    graph_investigation_id: str | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class ReportRequest(BaseModel):

@@ -9,6 +9,7 @@ from app.domain.models import (
     InvestigationRecord,
     InvestigationStatus,
     ReportResponse,
+    ScreeningResponse,
     RiskResponse,
     TargetType,
     WatchlistEntry,
@@ -25,6 +26,7 @@ class InMemoryStore:
     def __init__(self) -> None:
         self._records: dict[str, InvestigationRecord] = {}
         self._watchlist: dict[str, WatchlistEntry] = {}
+        self._screenings: dict[str, ScreeningResponse] = {}
 
     def create_investigation(self, payload: InvestigationCreate, target_type: TargetType) -> InvestigationRecord:
         investigation_id = str(uuid4())
@@ -83,3 +85,10 @@ class InMemoryStore:
 
     def get_watchlist_map(self) -> dict[str, WatchlistEntry]:
         return dict(self._watchlist)
+
+    def add_screening_event(self, event: ScreeningResponse) -> ScreeningResponse:
+        self._screenings[event.id] = event
+        return event
+
+    def list_screening_events(self) -> list[ScreeningResponse]:
+        return sorted(self._screenings.values(), key=lambda item: item.created_at, reverse=True)

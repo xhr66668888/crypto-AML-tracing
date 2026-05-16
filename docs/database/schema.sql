@@ -58,7 +58,69 @@ CREATE TABLE IF NOT EXISTS risk_scores (
   raindrop_score NUMERIC NOT NULL,
   final_risk_score NUMERIC NOT NULL,
   final_risk_level TEXT NOT NULL,
+  disposition_hint TEXT NOT NULL DEFAULT 'allow',
   feature_summary JSONB NOT NULL DEFAULT '{}',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS screening_events (
+  id UUID PRIMARY KEY,
+  chain_id TEXT NOT NULL DEFAULT '1',
+  asset TEXT NOT NULL,
+  direction TEXT NOT NULL,
+  from_address TEXT NOT NULL,
+  to_address TEXT NOT NULL,
+  amount NUMERIC NOT NULL,
+  customer_id TEXT,
+  team_id TEXT,
+  tx_hash TEXT,
+  risk_score NUMERIC NOT NULL,
+  risk_level TEXT NOT NULL,
+  disposition TEXT NOT NULL,
+  evidence_summary JSONB NOT NULL DEFAULT '[]',
+  recommended_actions JSONB NOT NULL DEFAULT '[]',
+  data_freshness JSONB NOT NULL DEFAULT '{}',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS risk_source_hits (
+  id UUID PRIMARY KEY,
+  investigation_id UUID REFERENCES investigations(id) ON DELETE CASCADE,
+  screening_event_id UUID REFERENCES screening_events(id) ON DELETE CASCADE,
+  address TEXT NOT NULL,
+  source TEXT NOT NULL,
+  category TEXT NOT NULL,
+  severity TEXT NOT NULL,
+  label TEXT NOT NULL,
+  evidence TEXT NOT NULL,
+  confidence NUMERIC NOT NULL DEFAULT 1,
+  direct_hit BOOLEAN NOT NULL DEFAULT false,
+  source_updated_at TIMESTAMPTZ,
+  raw_payload JSONB NOT NULL DEFAULT '{}',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS pattern_signals (
+  id UUID PRIMARY KEY,
+  investigation_id UUID REFERENCES investigations(id) ON DELETE CASCADE,
+  screening_event_id UUID REFERENCES screening_events(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  severity TEXT NOT NULL,
+  score NUMERIC NOT NULL,
+  subject TEXT NOT NULL,
+  evidence TEXT NOT NULL,
+  confidence NUMERIC NOT NULL DEFAULT 0.75,
+  metadata JSONB NOT NULL DEFAULT '{}',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS network_metrics (
+  id UUID PRIMARY KEY,
+  investigation_id UUID NOT NULL REFERENCES investigations(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  value NUMERIC NOT NULL,
+  subject TEXT,
+  metadata JSONB NOT NULL DEFAULT '{}',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -108,6 +170,18 @@ CREATE TABLE IF NOT EXISTS watchlist_entries (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS source_sync_runs (
+  id UUID PRIMARY KEY,
+  source TEXT NOT NULL,
+  status TEXT NOT NULL,
+  started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  completed_at TIMESTAMPTZ,
+  records_seen INTEGER NOT NULL DEFAULT 0,
+  records_changed INTEGER NOT NULL DEFAULT 0,
+  error_message TEXT,
+  metadata JSONB NOT NULL DEFAULT '{}'
+);
+
 CREATE TABLE IF NOT EXISTS api_cache (
   cache_key TEXT PRIMARY KEY,
   provider TEXT NOT NULL,
@@ -129,4 +203,9 @@ CREATE INDEX IF NOT EXISTS idx_investigation_edges_investigation_hop ON investig
 CREATE INDEX IF NOT EXISTS idx_transactions_from_address ON transactions (from_address);
 CREATE INDEX IF NOT EXISTS idx_transactions_to_address ON transactions (to_address);
 CREATE INDEX IF NOT EXISTS idx_risk_labels_address ON risk_labels (address);
+CREATE INDEX IF NOT EXISTS idx_screening_events_created_at ON screening_events (created_at);
+CREATE INDEX IF NOT EXISTS idx_screening_events_addresses ON screening_events (from_address, to_address);
+CREATE INDEX IF NOT EXISTS idx_risk_source_hits_address ON risk_source_hits (address);
+CREATE INDEX IF NOT EXISTS idx_pattern_signals_investigation ON pattern_signals (investigation_id);
+CREATE INDEX IF NOT EXISTS idx_pattern_signals_screening ON pattern_signals (screening_event_id);
 CREATE INDEX IF NOT EXISTS idx_api_cache_provider ON api_cache (provider);

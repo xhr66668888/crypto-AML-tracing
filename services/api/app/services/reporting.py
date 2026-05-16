@@ -65,17 +65,27 @@ class DeepSeekReporter:
             f"- {finding.severity.value.upper()}: {finding.subject} - {finding.evidence}"
             for finding in risk.findings[:8]
         ) or "- No high-confidence external risk labels were found."
+        patterns = "\n".join(
+            f"- {signal.severity.value.upper()}: {signal.name} - {signal.evidence}"
+            for signal in risk.pattern_signals[:6]
+        ) or "- No material pattern signals were detected in the observed graph."
+        actions = "\n".join(f"- {action}" for action in risk.recommended_actions) or "- No additional actions."
         return (
             "# AML Investigation Report\n\n"
             f"## Executive Summary\n"
             f"Target `{record.status.target}` was traced to depth {record.status.depth}. "
-            f"The final risk level is **{risk.final_risk_level.value.upper()}** with score {risk.final_risk_score:.1f}.\n\n"
+            f"The final risk level is **{risk.final_risk_level.value.upper()}** with score {risk.final_risk_score:.1f}. "
+            f"Disposition hint: **{risk.disposition_hint.value}**.\n\n"
             "## Scores\n"
             f"- Rule score: {risk.rule_score:.1f}\n"
             f"- Raindrop score: {risk.raindrop_score:.1f}\n"
             f"- Final score: {risk.final_risk_score:.1f}\n\n"
             "## Key Evidence\n"
             f"{findings}\n\n"
+            "## Pattern Signals\n"
+            f"{patterns}\n\n"
+            "## Recommended Actions\n"
+            f"{actions}\n\n"
             "## Analyst Notes\n"
             "Treat ML-derived signals as prioritization aids. Compliance disposition should rely on the evidence table, "
             "source labels, and analyst review."

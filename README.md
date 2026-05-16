@@ -1,13 +1,16 @@
 # Cregis ETH AML Tracing
 
-Local-first Ethereum AML investigation workbench for Cregis.
+Local-first Ethereum AML risk operations workbench for Cregis.
 
-The MVP lets an analyst enter an Ethereum address or transaction hash, build a 3-hop stable or 5-hop experimental transaction graph, aggregate external risk intelligence, compute rule and Raindrop-inspired scores, and generate an English investigation report.
+The V1 workbench has two entrypoints:
+
+- Real-time ETH/USDT/USDC screening for inbound/outbound transfers before funds are released.
+- Deep investigation for an Ethereum address or transaction hash, with transaction graph evidence, deterministic AML pattern signals, source-backed risk hits, rule and Raindrop-inspired scores, and an English investigation report.
 
 ## Current Implementation
 
-- `services/api`: FastAPI backend with demo-mode Etherscan/GoPlus connectors, graph builder, rule risk engine, Raindrop AML scoring boundary, DeepSeek reporting adapter, and tests.
-- `apps/web`: React/Vite workbench with investigation input, Cytoscape graph, risk evidence, node details, Raindrop features, and report preview.
+- `services/api`: FastAPI backend with demo-mode Etherscan/GoPlus connectors, transfer screening, graph builder, pattern analysis, source-hit risk intelligence, rule risk engine, Raindrop AML scoring boundary, DeepSeek reporting adapter, and tests.
+- `apps/web`: React/Vite workbench with pre-withdrawal screening, investigation input, Cytoscape graph, risk evidence, pattern/source-hit panels, node details, Raindrop features, and report preview.
 - `docs`: architecture, team ownership, database schema, and Raindrop migration notes.
 
 ## Run Locally
@@ -44,7 +47,7 @@ Open `http://localhost:5173`.
 docker compose up -d postgres redis
 ```
 
-The current API uses an in-memory store so the application remains easy to run locally. The PostgreSQL schema in `docs/database/schema.sql` defines the persistence target for the next implementation slice.
+The current API uses an in-memory store so the application remains easy to run locally. The PostgreSQL schema in `docs/database/schema.sql` defines the persistence target for screening events, source hits, pattern signals, network metrics, investigations, and audit logs.
 
 ## API Keys
 
