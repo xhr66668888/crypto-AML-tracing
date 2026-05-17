@@ -10,7 +10,7 @@ Feature schema version: 1  (see ``features.py``)
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from app.domain.models import InvestigationGraph

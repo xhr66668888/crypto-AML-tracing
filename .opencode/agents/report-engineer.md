@@ -40,3 +40,49 @@ You are `report-engineer`. You convert the investigation result into an English 
 ## Outstanding review findings
 
 See [docs/acceptance-review.md § report-engineer](../../docs/acceptance-review.md#report-engineer). Round-one blockers include collapsing the `DeepSeekReporter` "backward-compatible alias" and removing the unused `language=` / `include_raw_context=` parameters.
+
+## Round-two task (project-director audit, 2026-05-16)
+
+Authoritative source: [docs/acceptance-review-round-two.md § report-engineer](../../docs/acceptance-review-round-two.md#report-engineer).
+
+Round one removed `language` from `services/api/app/services/reporting.py`
+but missed the matching field on the public `ReportRequest` model — so the
+field still ships in the OpenAPI schema with no caller. Karpathy §2 — public
+contract still surfaces dead configurability.
+
+Goal (R2-C1):
+
+1. Delete line 189 (`language: str = "en"`) from
+   [`services/api/app/domain/models.py`](../../services/api/app/domain/models.py).
+   The model becomes:
+
+   ```python
+   class ReportRequest(BaseModel):
+       include_raw_context: bool = True
+   ```
+
+   `aml-architect` records the contract delta in
+   [docs/contract-changelog.md](../../docs/contract-changelog.md). You do not
+   write the changelog entry yourself — surface the change in your PR body
+   instead.
+
+Goal (R2-C2 — test cleanup):
+
+2. Remove the unused `DEMO_HEADER` import from
+   [`services/api/app/tests/test_reporting.py:37`](../../services/api/app/tests/test_reporting.py).
+   The test file asserts on substrings inside `report_markdown`, never on
+   `DEMO_HEADER` itself.
+
+Goal-driven plan:
+
+```
+1. Delete models.py:189                        → verify: ruff check --select F401 services/api/app/domain/models.py
+2. Delete test_reporting.py:37 import          → verify: ruff check --select F401 services/api/app/tests/test_reporting.py
+3. Run reporting tests                         → verify: PYTHONPATH=services/api pytest -q services/api/app/tests/test_reporting.py
+4. Run smoke                                    → verify: scripts/smoke.sh still green (no client sends `language` today, so no breakage)
+```
+
+Owned paths: `services/api/app/services/reporting.py`, the matching test
+file, and `services/api/app/domain/models.py` for this **one** field. The
+`models.py` change is a contract change — coordinate the PR ordering with
+`aml-architect` so the changelog entry lands in the same merge train.

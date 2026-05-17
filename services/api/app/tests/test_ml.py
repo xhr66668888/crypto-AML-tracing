@@ -18,7 +18,6 @@ from app.domain.models import (
     GraphEdge,
     GraphNode,
     InvestigationGraph,
-    RiskLevel,
 )
 from app.ml.features import FEATURE_SCHEMA_VERSION, extract_features
 from app.ml.raindrop_scorer import RaindropAmlScorer, RaindropResult

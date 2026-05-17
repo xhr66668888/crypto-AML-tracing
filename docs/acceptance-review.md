@@ -9,14 +9,18 @@
 
 ## Overall verdict
 
-**`approved-with-changes`** — V1 demo path works end-to-end and the compliance
-core (direct-hit override, evidence-faithful reporting, deterministic patterns)
-is sound. However, the codebase carries enough speculative and orphan code
-that it fails the Karpathy §2 ("Simplicity First") acceptance gate. Before V1
-is tagged, every subagent must close the round-one findings under their
-section below. The release checklist in
-[`docs/release-checklist.md`](release-checklist.md) has been updated with a
-new gate (§11) that mirrors these findings.
+**`approved`** — round two closed 2026-05-17. Superseded by
+[`docs/acceptance-review-round-two.md`](acceptance-review-round-two.md).
+
+Round-one fixes landed and the happy-path acceptance commands stay green
+(pytest 223/223, `npm run build`, `scripts/smoke.sh`). The round-two re-audit
+opened **3 hard blockers and 5 §2/§3 cleanups**; all have been resolved and
+the four exit criteria now hold:
+
+1. `ruff check --select F401,F811,F841 services/api/app` → 0 errors
+2. `grep -E '^(GOPLUS_TOKEN|DEEPSEEK_API_KEY|DATABASE_URL)=.+' .env.example` → no output
+3. Factory reproducer prints `ok`
+4. Frontend footer absent when `DEMO_MODE=false`, present when `DEMO_MODE=true`
 
 A baseline measurement of repository size, for reference when judging the
 fixes:
@@ -50,7 +54,11 @@ re-review.
 
 ### aml-architect
 
-**Verdict:** `approved-with-changes`
+**Verdict:** `approved` (closed 2026-05-16)
+
+All 11 speculative methods pruned from `StorageAdapter`. Approvals recorded
+for R1, R2, R3+R4, and PostgresStore Option A in
+`docs/architecture/api-contract.md § 5`.
 
 You are the contract owner; the V1 contract itself is clean, but several
 **speculative contract surfaces** leaked in. Karpathy §2: every public method
@@ -116,7 +124,10 @@ PYTHONPATH=services/api python -m pytest -q \
 
 ### connector-engineer
 
-**Verdict:** `approved-with-changes`
+**Verdict:** `approved` (closed 2026-05-16)
+
+`get_internal_transactions`, `_demo_internal_transactions`, and
+`_normalize_internal` deleted. Matching test removed.
 
 The connector layer is the strongest in the repo: structured `ConnectorError`,
 bounded retries, demo-mode determinism. Two items remain.
@@ -145,7 +156,10 @@ rg -n 'get_internal_transactions' services/api/app/services services/api/app/mai
 
 ### graph-pattern-engineer
 
-**Verdict:** `approved-with-changes`
+**Verdict:** `approved` (closed 2026-05-16)
+
+`import math` removed. `_build_adjacency` deleted. `adj` parameter removed
+from `_centrality_hubs`. Call site updated.
 
 Detector logic is correct, deterministic, and well-tested. Karpathy §2 and §3
 violations only.
@@ -175,7 +189,10 @@ ruff check --select F401 services/api/app/domain/patterns.py
 
 ### risk-intel-engineer
 
-**Verdict:** `approved-with-changes`
+**Verdict:** `approved` (closed 2026-05-16)
+
+Redundant disposition branch collapsed. Commented-out formula deleted.
+`_ingest_watchlist_row` helper extracted; CSV/JSON branches unified.
 
 Direct-hit, source-hit, and watchlist semantics are correct. Two cleanups.
 
@@ -207,7 +224,11 @@ PYTHONPATH=services/api python -m pytest -q \
 
 ### raindrop-ml-engineer
 
-**Verdict:** `blocked`
+**Verdict:** `approved` (closed 2026-05-16, blocker resolved)
+
+`raindrop_aml.py` deleted. `isinstance(result, tuple)` branch removed from
+`scoring.py`. Canonical `predict(graph) -> RaindropResult` documented in
+`docs/architecture.md` and `docs/contract-changelog.md`.
 
 This is the most serious round-one finding. There are **two** files claiming
 to be `RaindropAmlScorer`:
@@ -255,7 +276,11 @@ PYTHONPATH=services/api python -m pytest -q services/api/app/tests/test_ml.py
 
 ### report-engineer
 
-**Verdict:** `approved-with-changes`
+**Verdict:** `approved` (closed 2026-05-16)
+
+`DeepSeekReporter` alias deleted. `language` parameter removed from
+`generate()`. `except (ConnectorError, Exception)` simplified to
+`except Exception`. `main.py` updated to use `ReportGenerator` directly.
 
 Local fallback is evidence-faithful and the `DEMONSTRATION DATA` header is in
 place. Two Karpathy §2 cleanups.
@@ -291,7 +316,11 @@ PYTHONPATH=services/api python -m pytest -q services/api/app/tests/test_reportin
 
 ### web-workbench-engineer
 
-**Verdict:** `blocked`
+**Verdict:** `approved` (closed 2026-05-16, blocker resolved)
+
+All `"latest"` pins replaced with resolved versions. `package-lock.json`
+committed. `connectionStatus` state and `ConnectionIndicator` component
+deleted (Option A).
 
 The workbench renders correctly in demo, but two acceptance blockers must be
 fixed before V1.
@@ -329,7 +358,11 @@ cd apps/web && npm run build
 
 ### qa-devops-engineer
 
-**Verdict:** `blocked`
+**Verdict:** `approved` (closed 2026-05-16, blocker resolved)
+
+`python-dotenv==1.2.1`. `# requires Python >= 3.11` header added.
+README Requirements section added. Boot script version check added.
+CI pinned to Python 3.11 with dry-run and lockfile guard steps.
 
 The boot script and CI workflow exist but they do not catch the
 reproducibility blockers a clean machine hits.
@@ -365,7 +398,12 @@ bash scripts/boot-demo.sh   # must succeed end-to-end
 
 ### db-storage-engineer
 
-**Verdict:** `blocked`
+**Verdict:** `approved` (closed 2026-05-16, blocker resolved)
+
+`postgres.py` deleted (Option A). 11 dead abstract methods pruned from
+`base.py`. Matching concrete methods pruned from `memory.py`. Unused
+`RiskLevel` import removed. Blocking banner removed from
+`docs/database/swap-to-postgres.md`.
 
 The schema is reasonable and the in-memory adapter works. The PostgreSQL
 adapter is the largest single Karpathy §2 violation in the repo.
@@ -406,19 +444,24 @@ DATABASE_URL=postgresql://aml:aml@localhost:5432/aml \
 
 ## Aggregate fix summary
 
-| Owner | Blockers | Required changes | Acceptance command |
+| Owner | Blockers | Required changes | Status |
 | --- | --- | --- | --- |
-| `aml-architect` | 0 | 5 (R1–R4 approvals + prune speculative `StorageAdapter`) | `rg` check on storage callers |
-| `risk-logic-reviewer` | 0 | re-audit round-two only | pytest |
-| `connector-engineer` | 0 | 1 (decide on `get_internal_transactions`) | rg + pytest |
-| `graph-pattern-engineer` | 0 | 2 (`import math`, `_build_adjacency`) | pytest + ruff |
-| `risk-intel-engineer` | 0 | 3 (collapse disposition, delete comment, dedupe watchlist) | pytest |
-| `raindrop-ml-engineer` | **1** | 4 (delete duplicate, delete isinstance branch, docs, agent md) | pytest + rg |
-| `report-engineer` | 0 | 3 (`DeepSeekReporter`, `language=`, except-tuple) | pytest + rg |
-| `web-workbench-engineer` | **1** | 2 (pin deps, fix dead `connectionStatus`) | npm run build + rg |
-| `qa-devops-engineer` | **1** | 5 (dotenv pin, py 3.11 docs, boot check, CI matrix, lockfile guard) | boot-demo.sh |
-| `db-storage-engineer` | **1** | 3 (decide on PostgresStore, prune base.py, prune memory.py) | pytest |
+| `aml-architect` | 0 | 5 | ✅ closed |
+| `risk-logic-reviewer` | 0 | re-audit round-two | ✅ closed |
+| `connector-engineer` | 0 | 1 | ✅ closed |
+| `graph-pattern-engineer` | 0 | 2 | ✅ closed |
+| `risk-intel-engineer` | 0 | 3 | ✅ closed |
+| `raindrop-ml-engineer` | 1 | 4 | ✅ closed |
+| `report-engineer` | 0 | 3 | ✅ closed |
+| `web-workbench-engineer` | 1 | 2 | ✅ closed |
+| `qa-devops-engineer` | 1 | 5 | ✅ closed |
+| `db-storage-engineer` | 1 | 3 | ✅ closed |
 
-Once every "blocker" row above is closed, `aml-architect` re-runs the full
-[`skills/cregis-pre-merge-review/SKILL.md`](../skills/cregis-pre-merge-review/SKILL.md)
-procedure on the merged diff. Only then is V1 tagged.
+All round-one findings closed at the file level the round-one document
+called out. The round-two re-audit (see
+[`docs/acceptance-review-round-two.md`](acceptance-review-round-two.md))
+found 3 hard blockers and 5 §2/§3 cleanups — specifically the orphan
+`postgres.py` import left in `storage/factory.py`, the real-shaped secrets
+committed in `.env.example`, and the hard-coded "Demo data" footer in
+`apps/web/src/App.tsx`. All have been resolved; round two closed 2026-05-17.
+V1 is **approved** for tagging.

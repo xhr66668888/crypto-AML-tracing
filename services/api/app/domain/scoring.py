@@ -63,14 +63,8 @@ class RiskScoringEngine:
         base_rule_score = max([node.risk_score for node in graph.nodes] + [0]) + exposure_score
         rule_score = min(100.0, max(base_rule_score, pattern_score, direct_hit_score))
         raindrop_result = self.raindrop.predict(graph)
-        if isinstance(raindrop_result, tuple):
-            raindrop_score, raindrop_features = raindrop_result
-        else:
-            raindrop_score = raindrop_result.score
-            raindrop_features = raindrop_result.features
-        # final_risk_score = max(rule_score, raindrop_score)
-        # raindrop_score is advisory — it can raise the floor but never
-        # overrides source-backed evidence captured in rule_score.
+        raindrop_score = raindrop_result.score
+        raindrop_features = raindrop_result.features
         final_score = min(100.0, max(rule_score, raindrop_score))
         top_paths = self._top_risk_paths(graph)
         disposition = decide_disposition(final_score, source_hits, pattern_signals)
@@ -178,9 +172,7 @@ def decide_disposition(
         return RiskDisposition.hold_for_manual_review
     if score >= 85:
         return RiskDisposition.hold_for_manual_review
-    if score >= 65 or any(signal.severity == RiskLevel.high for signal in pattern_signals):
-        return RiskDisposition.review
-    if score >= 35:
+    if score >= 35 or any(signal.severity == RiskLevel.high for signal in pattern_signals):
         return RiskDisposition.review
     return RiskDisposition.allow
 

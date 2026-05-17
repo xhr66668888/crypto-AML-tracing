@@ -40,3 +40,33 @@ You are `raindrop-ml-engineer`. You own the AML risk-judgement ML layer.
 ## Outstanding review findings
 
 See [docs/acceptance-review.md § raindrop-ml-engineer](../../docs/acceptance-review.md#raindrop-ml-engineer). Round-one blockers include removing the duplicate `services/api/app/ml/raindrop_aml.py` adapter and the `isinstance(result, tuple)` compatibility branch it spawned in `scoring.py`.
+
+## Round-two task (project-director audit, 2026-05-16)
+
+Authoritative source: [docs/acceptance-review-round-two.md § raindrop-ml-engineer](../../docs/acceptance-review-round-two.md#raindrop-ml-engineer).
+
+Three ruff F401 violations (Karpathy §3 — your round-one delete of
+`raindrop_aml.py` left orphan imports in the surviving siblings):
+
+1. `services/api/app/ml/features.py:12` — `import math` is unused (no
+   `math.sqrt`, `math.log`, etc. anywhere in the file; replaced by
+   `statistics.pstdev` earlier).
+2. `services/api/app/ml/raindrop_scorer.py:13` —
+   `from dataclasses import dataclass, field` imports `field` but the file
+   uses bare-defaults `@dataclass`. Trim to `from dataclasses import dataclass`.
+3. `services/api/app/tests/test_ml.py:21` — `RiskLevel` is imported from
+   `app.domain.models` but never asserted on. Delete it from the import
+   block.
+
+Goal:
+
+```
+1. Delete `import math` from features.py:12         → verify: ruff check --select F401 services/api/app/ml/features.py exits 0
+2. Trim raindrop_scorer.py:13 import                → verify: ruff check --select F401 services/api/app/ml/raindrop_scorer.py exits 0
+3. Delete RiskLevel from test_ml.py:21              → verify: ruff check --select F401 services/api/app/tests/test_ml.py exits 0
+4. Run ML tests                                      → verify: PYTHONPATH=services/api pytest -q services/api/app/tests/test_ml.py
+5. Confirm RaindropAmlScorer.predict signature unchanged → verify: `rg -n 'def predict' services/api/app/ml/raindrop_scorer.py` still returns the same one line
+```
+
+You do not touch the `predict(graph) -> RaindropResult` signature. That
+signature is frozen until `aml-architect` approves a change.

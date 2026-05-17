@@ -1,114 +1,59 @@
-# Swapping from InMemoryStore to PostgreSQL
+# PostgreSQL Persistence — Future Design Note
 
-> ⚠️ **Round-one acceptance status: blocked.** The `PostgresStore`
-> implementation in `services/api/app/storage/postgres.py` raises
-> `NotImplementedError` on `get_screening_event` and has `TODO`s on
-> `list_screening_events`. It is **not** safe to point production traffic at
-> it. See
-> [`docs/acceptance-review.md § db-storage-engineer`](../acceptance-review.md#db-storage-engineer)
-> for the remediation choice (delete vs. integration-test). Until that is
-> resolved, this document describes the *intended* swap path, not a working
-> one.
+**Status:** Forward-looking. V1 ships with `InMemoryStore` only.
 
-This document explains how to migrate the AML Tracing system from the default in-memory storage to PostgreSQL.
+## Decision (2026-05-16, round-one acceptance)
 
-## Overview
+`PostgresStore` (`services/api/app/storage/postgres.py`, 442 lines) was
+deleted during round-one Karpathy §2 cleanup. It raised `NotImplementedError`
+on `get_screening_event` and had `TODO`s on `list_screening_events`. No
+caller existed in `services/` or `main.py`.
 
-The storage layer uses a **StorageAdapter** interface that allows swapping between implementations:
+**Option A approved** by `aml-architect`: delete the speculative adapter.
+The SQL schema in `docs/database/schema.sql` remains as the persistence
+contract. When V1 actually needs persistence, write the adapter then,
+with an integration test gated on `DATABASE_URL`.
 
-| Store | When to use | Data persistence |
-|-------|-------------|------------------|
-| `InMemoryStore` | Default, demo mode, development | Lost on restart |
-| `PostgresStore` | Production, multi-session, data persistence | Persistent |
+## Architecture (for future implementation)
 
-## Quick Start
+**Round-two note (2026-05-16):** The `DATABASE_URL` branch in
+`app/storage/factory.py` was removed in round two because the `PostgresStore`
+adapter it called no longer exists. A future PR that re-implements the adapter
+must also restore the factory branch (see Step 0 in the checklist below).
 
-### 1. Install PostgreSQL dependencies
+The storage layer uses a `StorageAdapter` abstract base class. Implementations:
 
-```bash
-pip install psycopg2-binary
+| Store | Status | Data persistence |
+|-------|--------|------------------|
+| `InMemoryStore` | V1 default | Lost on restart |
+| `PostgresStore` | Not yet implemented | Will be persistent |
+
+### Schema
+
+`docs/database/schema.sql` defines the full relational schema:
+
+- **Core tables:** `investigations`, `addresses`, `transactions`, `investigation_edges`
+- **Risk tables:** `risk_labels`, `risk_scores`, `screening_events`, `risk_source_hits`
+- **Analysis tables:** `pattern_signals`, `network_metrics`, `ml_features`, `ml_predictions`
+- **AI/ML tables:** `experiment_runs`, `ai_reports`
+- **Operations tables:** `watchlist_entries`, `source_sync_runs`, `api_cache`, `audit_logs`
+
+All tables include UUID primary keys, `created_at` timestamps with timezone,
+JSONB columns for flexible metadata, and appropriate indexes.
+
+### Environment
+
+When implemented, the adapter should be gated behind `DATABASE_URL`:
+
+```
+DATABASE_URL=postgresql://user:password@host:port/database
 ```
 
-### 2. Set DATABASE_URL
+If `DATABASE_URL` is unset, the system falls back to `InMemoryStore`.
 
-Add to your `.env` file:
-
-```bash
-DATABASE_URL=postgresql://user:password@localhost:5432/aml_tracing
-```
-
-Format: `postgresql://<user>:<password>@<host>:<port>/<database>`
-
-### 3. Create the database
-
-```bash
-createdb aml_tracing
-```
-
-### 4. Apply the schema
-
-```bash
-psql -d aml_tracing -f docs/database/schema.sql
-```
-
-### 5. Restart the API
-
-```bash
-cd services/api
-uvicorn app.main:app --reload
-```
-
-The storage factory automatically detects `DATABASE_URL` and uses `PostgresStore`.
-
-## How It Works
-
-### Storage Factory
-
-The `get_store()` function in `app/storage/factory.py` handles the selection:
-
-```python
-from app.storage import get_store
-
-# Returns InMemoryStore if DATABASE_URL is not set
-# Returns PostgresStore if DATABASE_URL is set
-store = get_store()
-```
-
-### Environment Variables
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `DATABASE_URL` | No | *(empty)* | PostgreSQL connection string. If empty, uses InMemoryStore. |
-
-### Fallback Behavior
-
-If `DATABASE_URL` is set but `psycopg2` is not installed:
-- A warning is emitted
-- System falls back to `InMemoryStore`
-- No data loss or crash
-
-## Schema Details
-
-The schema (`docs/database/schema.sql`) creates:
-
-- **Core tables**: `investigations`, `addresses`, `transactions`, `investigation_edges`
-- **Risk tables**: `risk_labels`, `risk_scores`, `screening_events`, `risk_source_hits`
-- **Analysis tables**: `pattern_signals`, `network_metrics`, `ml_features`, `ml_predictions`
-- **AI/ML tables**: `experiment_runs`, `ai_reports`
-- **Operations tables**: `watchlist_entries`, `source_sync_runs`, `api_cache`, `audit_logs`
-
-All tables include:
-- UUID primary keys
-- `created_at` timestamps with timezone
-- JSONB columns for flexible metadata
-- Appropriate indexes for common query patterns
-
-## Docker Compose Setup
-
-For local development with Docker:
+### Docker Compose
 
 ```yaml
-# docker-compose.yml
 services:
   postgres:
     image: postgres:16-alpine
@@ -126,74 +71,12 @@ volumes:
   pgdata:
 ```
 
-Then set:
-```bash
-DATABASE_URL=postgresql://aml:aml_dev_password@localhost:5432/aml_tracing
-```
+## Implementation checklist (for future PR)
 
-## Verification
-
-### 1. Check store type
-
-The `/health` endpoint shows demo mode status. Check logs for:
-```
-Using PostgresStore with DATABASE_URL=postgresql://...
-```
-
-### 2. Run tests
-
-```bash
-PYTHONPATH=services/api pytest -q services/api/app/tests
-```
-
-Tests run against InMemoryStore by default (no DATABASE_URL in test environment).
-
-### 3. Verify persistence
-
-1. Create an investigation via API
-2. Restart the server
-3. Query the investigation — it should still exist
-
-## Migration from InMemoryStore
-
-**No data migration is possible** — InMemoryStore data is ephemeral.
-
-When swapping to PostgreSQL:
-1. All new data goes to PostgreSQL
-2. Previous in-memory data is lost
-3. This is expected for demo/development → production transition
-
-## Troubleshooting
-
-### psycopg2 installation fails
-
-```bash
-# On Ubuntu/Debian
-sudo apt-get install libpq-dev
-pip install psycopg2-binary
-
-# On macOS
-brew install postgresql
-pip install psycopg2-binary
-```
-
-### Connection refused
-
-1. Check PostgreSQL is running: `pg_isready`
-2. Verify DATABASE_URL credentials
-3. Check firewall/network settings
-
-### Schema already exists
-
-The schema uses `CREATE TABLE IF NOT EXISTS`, so re-running is safe:
-```bash
-psql -d aml_tracing -f docs/database/schema.sql
-```
-
-## Future Enhancements
-
-- [ ] Connection pooling (asyncpg or psycopg2 pool)
-- [ ] Migration tooling (Alembic)
-- [ ] Read replicas support
-- [ ] Connection health checks
-- [ ] Graceful degradation on connection loss
+- [ ] **Step 0** — restore the `DATABASE_URL` branch in `app/storage/factory.py` that round two removed.
+- [ ] Implement `PostgresStore(StorageAdapter)` using `psycopg2` or `asyncpg`
+- [ ] Gate behind `DATABASE_URL` in `app/storage/factory.py`
+- [ ] Add integration test (skipped by default, enabled when `DATABASE_URL` is set)
+- [ ] Round-trip: investigation, screening event, watchlist entry
+- [ ] Remove all `NotImplementedError` and `TODO` markers
+- [ ] Update this doc with working swap instructions

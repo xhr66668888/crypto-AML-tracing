@@ -1,9 +1,9 @@
 # Subagent Assignments
 
 This project is delivered by ten OpenCode subagents instead of named human
-programmers. Two are brain agents (architecture + risk-logic review) pinned to
-**Codex GPT 5.5 with `reasoningEffort: high`** via
-[`opencode.json`](../opencode.json). Eight are execution agents that **inherit
+programmers. Two are brain agents (architecture + risk-logic review) that **inherit
+the OpenCode default model** (`mimo-v2.5-pro` in this setup) — no per-file
+model override, so they follow whatever default the user has configured.. Eight are execution agents that **inherit
 the OpenCode default model** (`mimo-v2.5-pro` in this setup) — no per-file
 model override, so they follow whatever default the user has configured.
 
@@ -32,7 +32,7 @@ read
 ### `aml-architect` — Principal Architect & Release Commander
 
 - File: [.opencode/agents/aml-architect.md](../.opencode/agents/aml-architect.md)
-- Owns: API contracts in `services/api/app/api/`, request/response models in
+- Owns: API routes in `services/api/app/main.py`, request/response models in
   `services/api/app/domain/models.py`, `docs/database/schema.sql`, module
   boundaries, `.env.example`, `services/api/app/core/`, direct-hit policy,
   release checklist, known-limitations list.
@@ -89,7 +89,7 @@ read
 - Owns: `services/api/app/domain/risk_intel.py`, the rule-score side of
   `services/api/app/domain/scoring.py`, watchlist persistence inside
   `services/api/app/storage/`, watchlist import endpoint in
-  `services/api/app/api/`.
+  `services/api/app/main.py`.
 - Deliverables: CSV/JSON watchlist import
   (`address,label,category,severity,notes`), explainable `SourceHit` rows,
   OFAC/PEP/sanctions/stablecoin-blacklist direct-hit semantics, calibrated

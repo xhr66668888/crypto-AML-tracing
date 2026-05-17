@@ -34,7 +34,7 @@ from app.domain.models import (
     RiskSourceHit,
     TargetType,
 )
-from app.services.reporting import DEMO_HEADER, ReportGenerator
+from app.services.reporting import ReportGenerator
 
 
 # ---------------------------------------------------------------------------

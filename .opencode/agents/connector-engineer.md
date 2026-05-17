@@ -40,3 +40,35 @@ You are `connector-engineer`. You make external provider integrations boring and
 ## Outstanding review findings
 
 See [docs/acceptance-review.md § connector-engineer](../../docs/acceptance-review.md#connector-engineer) for the open required changes from the project director's round-one acceptance audit.
+
+## Round-two task (project-director audit, 2026-05-16)
+
+Authoritative source: [docs/acceptance-review-round-two.md § connector-engineer](../../docs/acceptance-review-round-two.md#connector-engineer).
+
+Single ruff F841 violation (Karpathy §3 — your round-one edit left an
+orphan):
+
+- `services/api/app/connectors/etherscan.py:200` —
+  `except httpx.TimeoutException as exc:` binds `exc` but the block never
+  reads it (the matching `last_exc = ConnectorError(...)` constructs the
+  error from `self.timeout_seconds` and `attempt`/`self.max_retries`, not
+  from `exc`). The neighbouring `except httpx.HTTPError as exc:` on line 208
+  IS used (`f"HTTP error: {exc}"`) — leave that one alone.
+
+Goal:
+
+1. Change line 200 from
+   `except httpx.TimeoutException as exc:` to
+   `except httpx.TimeoutException:`. Nothing else in this `except` block
+   changes.
+
+Goal-driven plan:
+
+```
+1. Patch line 200                              → verify: ruff check --select F841 services/api/app/connectors/etherscan.py exits 0
+2. Run connector tests                         → verify: PYTHONPATH=services/api pytest -q services/api/app/tests/test_connectors.py
+3. Run smoke                                    → verify: scripts/smoke.sh still green
+```
+
+Owned paths only: `services/api/app/connectors/etherscan.py` for this line.
+No other connector file needs changes.

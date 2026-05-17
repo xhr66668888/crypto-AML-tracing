@@ -566,9 +566,10 @@ Any address with a watchlist category in this set produces `direct_hit=True` on 
 
 ## Changes Made During Freeze
 
-1. **Fixed `main.py` import**: Changed `from app.ml.raindrop_aml import RaindropAmlScorer` to `from app.ml.raindrop_scorer import RaindropAmlScorer` to use the frozen interface. The old `raindrop_aml.py` returns `tuple[float, dict]` while the frozen `raindrop_scorer.py` returns `RaindropResult`. `scoring.py` already handles both return types.
+1. **Canonical Raindrop interface**: `RaindropAmlScorer.predict(graph) -> RaindropResult` is the only public surface. The duplicate `raindrop_aml.py` (returning `tuple[float, dict]`) was deleted during round-one Karpathy §2 cleanup. `scoring.py` no longer has an `isinstance(result, tuple)` branch.
 2. **No endpoint path changes**: All paths match the implementation in `main.py`. Note: watchlist endpoints use `/api/v1/watchlists` (plural).
 3. **No model changes**: All Pydantic models in `domain/models.py` are complete and correct.
+4. **R2: dropped `language` from `ReportRequest`**: no caller existed; field silently accepted by FastAPI returned 200 with no effect; removed to match Karpathy §2 single-use rule.
 
 ---
 

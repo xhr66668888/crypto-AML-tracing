@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict, deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from app.connectors.etherscan import EtherscanClient
 from app.domain.models import GraphEdge, GraphNode, InvestigationGraph, InvestigationMode

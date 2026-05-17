@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 from collections import Counter, defaultdict
 from time import time
 
@@ -32,9 +31,6 @@ class PatternAnalyzer:
         if not edges:
             return signals
 
-        # Build adjacency for metrics used by multiple detectors
-        adj = self._build_adjacency(graph)
-
         signals.extend(self._layering(graph))
         signals.extend(self._aggregation(edges))
         signals.extend(self._peel_chain(edges))
@@ -42,7 +38,7 @@ class PatternAnalyzer:
         signals.extend(self._high_frequency_micro(edges))
         signals.extend(self._dusting(edges))
         signals.extend(self._one_shot_addresses(graph))
-        signals.extend(self._centrality_hubs(graph, adj))
+        signals.extend(self._centrality_hubs(graph))
         signals.extend(self._risk_propagation(graph, target_address))
         return sorted(signals, key=lambda item: item.score, reverse=True)
 
@@ -490,7 +486,7 @@ class PatternAnalyzer:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _centrality_hubs(graph: InvestigationGraph, adj: dict[str, set[str]]) -> list[PatternSignal]:
+    def _centrality_hubs(graph: InvestigationGraph) -> list[PatternSignal]:
         """Detect addresses with unusually high betweenness centrality.
 
         A centrality hub is an address that sits on many shortest paths
@@ -575,18 +571,6 @@ class PatternAnalyzer:
                 },
             )
         ]
-
-    # ------------------------------------------------------------------
-    # Helper: Build adjacency
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _build_adjacency(graph: InvestigationGraph) -> dict[str, set[str]]:
-        adj: dict[str, set[str]] = defaultdict(set)
-        for edge in graph.edges:
-            adj[edge.source].add(edge.target)
-            adj[edge.target].add(edge.source)
-        return adj
 
     # ------------------------------------------------------------------
     # Helper: Degree

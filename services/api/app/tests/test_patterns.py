@@ -8,8 +8,6 @@ from __future__ import annotations
 
 from time import time
 
-import pytest
-
 from app.domain.models import GraphEdge, GraphNode, InvestigationGraph, RiskLevel
 from app.domain.patterns import PatternAnalyzer
 

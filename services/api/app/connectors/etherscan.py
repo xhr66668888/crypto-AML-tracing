@@ -143,32 +143,6 @@ class EtherscanClient:
         self._cache.set(cache_key, detail)
         return detail
 
-    async def get_internal_transactions(self, tx_hash: str) -> list[dict[str, Any]]:
-        """Fetch internal (trace) transactions for a parent tx hash."""
-        if self.demo_mode or not self.api_key:
-            return self._demo_internal_transactions(tx_hash)
-
-        cache_key = f"txinternal:{tx_hash}"
-        cached = self._cache.get(cache_key)
-        if cached is not None:
-            return cached
-
-        params = {
-            "chainid": self.chain_id,
-            "module": "account",
-            "action": "txlistinternal",
-            "txhash": tx_hash,
-            "apikey": self.api_key,
-        }
-        payload = await self._get(params)
-        result = payload.get("result", [])
-        if isinstance(result, list):
-            normalised = [self._normalize_internal(tx) for tx in result]
-        else:
-            normalised = []
-        self._cache.set(cache_key, normalised)
-        return normalised
-
     # ------------------------------------------------------------------
     # HTTP with retries
     # ------------------------------------------------------------------
@@ -223,7 +197,7 @@ class EtherscanClient:
                     )
                 return payload
 
-            except httpx.TimeoutException as exc:
+            except httpx.TimeoutException:
                 last_exc = ConnectorError(
                     provider=PROVIDER,
                     status_code=None,
@@ -285,27 +259,6 @@ class EtherscanClient:
             "source": "demo",
         }
 
-    def _demo_internal_transactions(self, tx_hash: str) -> list[dict[str, Any]]:
-        """Deterministic internal transactions for demo mode."""
-        base = int(hashlib.sha256(f"internal:{tx_hash}".encode()).hexdigest()[:8], 16)
-        count = (base % 3) + 1  # 1-3 internal txs
-        result: list[dict[str, Any]] = []
-        for idx in range(count):
-            value = round(((base + idx) % 7 + 1) / 10.0, 5)
-            result.append(
-                {
-                    "hash": tx_hash,
-                    "from": _demo_address(tx_hash, idx + 10),
-                    "to": _demo_address(tx_hash, idx + 20),
-                    "value_eth": value,
-                    "timestamp": int(time.time()) - 3600 - idx * 60,
-                    "block_number": str(19000000 + idx),
-                    "is_error": "0",
-                    "source": "demo",
-                }
-            )
-        return result
-
     # ------------------------------------------------------------------
     # Normalisation
     # ------------------------------------------------------------------
@@ -328,20 +281,4 @@ class EtherscanClient:
             "source": "etherscan",
         }
 
-    @staticmethod
-    def _normalize_internal(tx: dict[str, Any]) -> dict[str, Any]:
-        value_raw = tx.get("value") or "0"
-        try:
-            value_eth = int(value_raw) / 1e18
-        except (TypeError, ValueError):
-            value_eth = 0.0
-        return {
-            "hash": tx.get("hash", ""),
-            "from": (tx.get("from") or "").lower(),
-            "to": (tx.get("to") or "").lower(),
-            "value_eth": value_eth,
-            "timestamp": int(tx.get("timeStamp") or 0),
-            "block_number": tx.get("blockNumber", ""),
-            "is_error": tx.get("isError", "0"),
-            "source": "etherscan-internal",
-        }
+

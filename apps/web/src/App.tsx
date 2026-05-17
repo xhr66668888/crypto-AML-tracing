@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Shield, Database, AlertTriangle, Wifi, WifiOff } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Shield, Database, AlertTriangle } from "lucide-react";
 import { ScreeningPanel } from "./components/ScreeningPanel";
 import { InvestigationPanel } from "./components/InvestigationPanel";
 import { WatchlistPanel } from "./components/WatchlistPanel";
@@ -8,7 +8,14 @@ type PanelView = "screening" | "investigation" | "watchlist";
 
 export default function App() {
   const [activePanel, setActivePanel] = useState<PanelView>("screening");
-  const [connectionStatus, setConnectionStatus] = useState<"unknown" | "connected" | "error">("unknown");
+  const [demoMode, setDemoMode] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    fetch(`${import.meta.env.VITE_API_BASE}/health`)
+      .then(r => r.json())
+      .then(d => setDemoMode(Boolean(d.demo_mode)))
+      .catch(() => setDemoMode(null));
+  }, []);
 
   return (
     <main className="app-shell">
@@ -25,7 +32,6 @@ export default function App() {
             <Shield size={16} />
             ETH / USDT / USDC V1
           </div>
-          <ConnectionIndicator status={connectionStatus} />
         </div>
       </header>
 
@@ -59,19 +65,8 @@ export default function App() {
 
       <footer className="app-footer">
         <p>Cregis ETH AML Tracing &mdash; Risk Operations Workbench V1</p>
-        <p className="footer-note">Demo data &mdash; not real intelligence</p>
+        {demoMode === true && <p className="footer-note">Demo data &mdash; not real intelligence</p>}
       </footer>
     </main>
-  );
-}
-
-function ConnectionIndicator({ status }: { status: "unknown" | "connected" | "error" }) {
-  if (status === "unknown") return null;
-
-  return (
-    <div className={`connection-indicator ${status}`}>
-      {status === "connected" ? <Wifi size={14} /> : <WifiOff size={14} />}
-      <span>{status === "connected" ? "Connected" : "Disconnected"}</span>
-    </div>
   );
 }

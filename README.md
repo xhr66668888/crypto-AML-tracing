@@ -13,6 +13,11 @@ The V1 workbench has two entrypoints:
 - `apps/web`: React/Vite workbench with pre-withdrawal screening, investigation input, Cytoscape graph, risk evidence, pattern/source-hit panels, node details, Raindrop features, and report preview.
 - `docs`: architecture, team ownership, database schema, and Raindrop migration notes.
 
+## Requirements
+
+- **Python 3.11 or newer** (uses `from datetime import UTC` and other 3.11+ features)
+- **Node 18+** (for the Vite frontend)
+
 ## Run Locally
 
 **One command** (recommended):

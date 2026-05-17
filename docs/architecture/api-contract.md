@@ -221,7 +221,37 @@ Pattern-only signals (no direct-hit) max out at `disposition=review`.
 - The UI must never describe `demo` or `unavailable` provider hits as real
   intelligence.
 
-## 5. Sign-off matrix
+## 5. Pruned StorageAdapter methods (2026-05-16)
+
+The following abstract methods on `StorageAdapter` were deleted during
+round-one acceptance cleanup. None have a caller in
+`services/api/app/services/` or `services/api/app/main.py`.
+
+| Method | Was in | Rationale |
+|--------|--------|-----------|
+| `add_risk_source_hit` | `base.py:117` | No caller; Karpathy §2 |
+| `list_risk_source_hits` | `base.py:122` | No caller; Karpathy §2 |
+| `add_pattern_signal` | `base.py:133` | No caller; Karpathy §2 |
+| `list_pattern_signals` | `base.py:138` | No caller; Karpathy §2 |
+| `add_network_metric` | `base.py:149` | No caller; Karpathy §2 |
+| `list_network_metrics` | `base.py:154` | No caller; Karpathy §2 |
+| `add_ai_report` | `base.py:161` | No caller; Karpathy §2 |
+| `list_ai_reports` | `base.py:166` | No caller; Karpathy §2 |
+| `append_audit_log` | `base.py:173` | No caller; Karpathy §2 |
+| `list_audit_logs` | `base.py:184` | No caller; Karpathy §2 |
+| `get_screening_event` | `base.py:78` | GET endpoint not wired in `main.py` |
+
+When a real endpoint ships that needs one of these, it should be added back
+in the same PR that wires the endpoint.
+
+### Approvals recorded
+
+- **R1+R3+R4 fix** (qa-devops-engineer): Approved. `python-dotenv==1.2.1`, `# requires Python >= 3.11` header, README Requirements section, boot script version check.
+- **R2 fix** (web-workbench-engineer): Approved. Pin `"latest"` to resolved versions, commit `package-lock.json`.
+- **Prune list** (db-storage-engineer): Approved. Delete all 11 methods from `base.py`, `memory.py`, and the full `postgres.py` file (Option A).
+- **PostgresStore**: Option A approved — delete `services/api/app/storage/postgres.py`. The SQL schema in `docs/database/schema.sql` remains as the contract. When V1 actually needs persistence, write the adapter then.
+
+## 6. Sign-off matrix
 
 | Section                              | Owner                  | Reviewer              |
 | ------------------------------------ | ---------------------- | --------------------- |

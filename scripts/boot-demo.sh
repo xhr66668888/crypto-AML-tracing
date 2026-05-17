@@ -10,6 +10,14 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
+# ── 0. Python version check ────────────────────────────────────────
+if ! python3 -c 'import sys; assert sys.version_info >= (3, 11)' 2>/dev/null; then
+  echo "[boot] ERROR: Python 3.11 or newer is required."
+  echo "[boot] Found: $(python3 --version 2>&1)"
+  echo "[boot] Please install Python 3.11+ and try again."
+  exit 1
+fi
+
 # ── 1. Environment ──────────────────────────────────────────────────
 if [ ! -f .env ]; then
   echo "[boot] Copying .env.example -> .env"

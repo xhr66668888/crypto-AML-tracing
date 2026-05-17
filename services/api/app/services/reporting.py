@@ -19,15 +19,10 @@ import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from app.connectors.base import ConnectorError
 from app.connectors.deepseek import DeepSeekClient
 from app.domain.models import (
     InvestigationRecord,
-    PatternSignal,
     ReportResponse,
-    RiskLevel,
-    RiskResponse,
-    RiskSourceHit,
 )
 
 logger = logging.getLogger(__name__)
@@ -58,7 +53,6 @@ class ReportGenerator:
     async def generate(
         self,
         record: InvestigationRecord,
-        language: str = "en",
         include_raw_context: bool = True,
     ) -> ReportResponse:
         """Generate an investigation report for the given record."""
@@ -88,7 +82,7 @@ class ReportGenerator:
                     report_markdown=content,
                     generated_at=datetime.now(UTC),
                 )
-            except (ConnectorError, Exception) as exc:
+            except Exception as exc:
                 logger.warning("DeepSeek failed, falling back to local template: %s", exc)
 
         # Local fallback
@@ -218,20 +212,3 @@ class ReportGenerator:
         }
 
 
-# ---------------------------------------------------------------------------
-# Backward-compatible alias
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class DeepSeekReporter:
-    """Legacy report generator interface. Use ReportGenerator for new code."""
-
-    api_key: str
-    base_url: str
-    model: str
-
-    async def generate(self, record: InvestigationRecord, language: str = "en", include_raw_context: bool = True) -> ReportResponse:
-        client = DeepSeekClient(api_key=self.api_key, base_url=self.base_url, model=self.model)
-        gen = ReportGenerator(deepseek=client, demo_mode=False)
-        return await gen.generate(record, language=language, include_raw_context=include_raw_context)

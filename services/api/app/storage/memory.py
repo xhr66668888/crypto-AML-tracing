@@ -1,12 +1,11 @@
-"""In-memory storage adapter (default when no DATABASE_URL is configured).
+"""In-memory storage adapter (default for V1).
 
-Implements the full StorageAdapter interface for V1 API endpoints.
+Implements the StorageAdapter interface for V1 API endpoints.
 Data is lost on process restart — acceptable for demo/MVP usage.
 """
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
 from uuid import uuid4
 
 from app.domain.models import (
@@ -17,7 +16,6 @@ from app.domain.models import (
     ReportResponse,
     RiskResponse,
     ScreeningResponse,
-    TargetType,
     WatchlistEntry,
 )
 from app.storage.base import StorageAdapter
@@ -26,19 +24,14 @@ from app.storage.base import StorageAdapter
 class InMemoryStore(StorageAdapter):
     """Simple local store for MVP runs.
 
-    The persistence boundary is deliberately isolated so a PostgreSQL adapter can
-    replace this without changing API routes or domain services.
+    The persistence boundary is deliberately isolated so a future persistence
+    adapter can replace this without changing API routes or domain services.
     """
 
     def __init__(self) -> None:
         self._records: dict[str, InvestigationRecord] = {}
         self._watchlist: dict[str, WatchlistEntry] = {}
         self._screenings: dict[str, ScreeningResponse] = {}
-        self._risk_source_hits: list[dict[str, Any]] = []
-        self._pattern_signals: list[dict[str, Any]] = []
-        self._network_metrics: list[dict[str, Any]] = []
-        self._ai_reports: list[dict[str, Any]] = []
-        self._audit_logs: list[dict[str, Any]] = []
 
     # ── Investigation CRUD ──────────────────────────────────────────────────
 
@@ -110,11 +103,6 @@ class InMemoryStore(StorageAdapter):
             reverse=True,
         )
 
-    def get_screening_event(self, event_id: str) -> ScreeningResponse:
-        if event_id not in self._screenings:
-            raise KeyError(event_id)
-        return self._screenings[event_id]
-
     # ── Watchlist CRUD ──────────────────────────────────────────────────────
 
     def upsert_watchlist_entry(self, entry: WatchlistEntry) -> WatchlistEntry:
@@ -143,103 +131,3 @@ class InMemoryStore(StorageAdapter):
 
     def clear_watchlist(self) -> None:
         self._watchlist.clear()
-
-    # ── Risk Source Hit CRUD ────────────────────────────────────────────────
-
-    def add_risk_source_hit(self, hit: dict[str, Any]) -> dict[str, Any]:
-        if "id" not in hit:
-            hit["id"] = str(uuid4())
-        if "created_at" not in hit:
-            hit["created_at"] = datetime.now(UTC).isoformat()
-        self._risk_source_hits.append(hit)
-        return hit
-
-    def list_risk_source_hits(
-        self,
-        investigation_id: str | None = None,
-        screening_event_id: str | None = None,
-    ) -> list[dict[str, Any]]:
-        results = self._risk_source_hits
-        if investigation_id is not None:
-            results = [h for h in results if h.get("investigation_id") == investigation_id]
-        if screening_event_id is not None:
-            results = [h for h in results if h.get("screening_event_id") == screening_event_id]
-        return results
-
-    # ── Pattern Signal CRUD ─────────────────────────────────────────────────
-
-    def add_pattern_signal(self, signal: dict[str, Any]) -> dict[str, Any]:
-        if "id" not in signal:
-            signal["id"] = str(uuid4())
-        if "created_at" not in signal:
-            signal["created_at"] = datetime.now(UTC).isoformat()
-        self._pattern_signals.append(signal)
-        return signal
-
-    def list_pattern_signals(
-        self,
-        investigation_id: str | None = None,
-        screening_event_id: str | None = None,
-    ) -> list[dict[str, Any]]:
-        results = self._pattern_signals
-        if investigation_id is not None:
-            results = [s for s in results if s.get("investigation_id") == investigation_id]
-        if screening_event_id is not None:
-            results = [s for s in results if s.get("screening_event_id") == screening_event_id]
-        return results
-
-    # ── Network Metrics CRUD ────────────────────────────────────────────────
-
-    def add_network_metric(self, metric: dict[str, Any]) -> dict[str, Any]:
-        if "id" not in metric:
-            metric["id"] = str(uuid4())
-        if "created_at" not in metric:
-            metric["created_at"] = datetime.now(UTC).isoformat()
-        self._network_metrics.append(metric)
-        return metric
-
-    def list_network_metrics(self, investigation_id: str) -> list[dict[str, Any]]:
-        return [m for m in self._network_metrics if m.get("investigation_id") == investigation_id]
-
-    # ── AI Report CRUD ──────────────────────────────────────────────────────
-
-    def add_ai_report(self, report: dict[str, Any]) -> dict[str, Any]:
-        if "id" not in report:
-            report["id"] = str(uuid4())
-        if "created_at" not in report:
-            report["created_at"] = datetime.now(UTC).isoformat()
-        self._ai_reports.append(report)
-        return report
-
-    def list_ai_reports(self, investigation_id: str) -> list[dict[str, Any]]:
-        return [r for r in self._ai_reports if r.get("investigation_id") == investigation_id]
-
-    # ── Audit Log ───────────────────────────────────────────────────────────
-
-    def append_audit_log(
-        self,
-        action: str,
-        subject: str,
-        actor: str = "local-user",
-        metadata: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        entry = {
-            "id": str(uuid4()),
-            "actor": actor,
-            "action": action,
-            "subject": subject,
-            "metadata": metadata or {},
-            "created_at": datetime.now(UTC).isoformat(),
-        }
-        self._audit_logs.append(entry)
-        return entry
-
-    def list_audit_logs(
-        self,
-        actor: str | None = None,
-        limit: int = 100,
-    ) -> list[dict[str, Any]]:
-        results = self._audit_logs
-        if actor is not None:
-            results = [log for log in results if log.get("actor") == actor]
-        return sorted(results, key=lambda x: x["created_at"], reverse=True)[:limit]

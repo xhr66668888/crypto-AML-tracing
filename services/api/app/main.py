@@ -24,9 +24,10 @@ from app.domain.models import (
 from app.domain.patterns import PatternAnalyzer
 from app.domain.risk_intel import RiskIntelAggregator
 from app.domain.scoring import RiskScoringEngine
+from app.connectors.deepseek import DeepSeekClient
 from app.ml.raindrop_scorer import RaindropAmlScorer
 from app.services.investigation import InvestigationService
-from app.services.reporting import DeepSeekReporter
+from app.services.reporting import ReportGenerator
 from app.services.screening import ScreeningService
 from app.storage import get_store
 
@@ -53,7 +54,7 @@ graph_builder = GraphBuilder(etherscan, settings.max_stable_nodes, settings.max_
 scoring = RiskScoringEngine(intel, raindrop, patterns)
 investigations = InvestigationService(store, graph_builder, scoring)
 screening = ScreeningService(store, graph_builder, scoring, patterns)
-reporter = DeepSeekReporter(settings.deepseek_api_key, settings.deepseek_base_url, settings.deepseek_model)
+reporter = ReportGenerator(deepseek=DeepSeekClient(api_key=settings.deepseek_api_key, base_url=settings.deepseek_base_url, model=settings.deepseek_model), demo_mode=settings.demo_mode)
 
 app = FastAPI(title=settings.app_name, version="0.1.0")
 app.add_middleware(
@@ -117,7 +118,7 @@ async def get_risk(investigation_id: str):
 @app.post("/api/v1/investigations/{investigation_id}/reports")
 async def create_report(investigation_id: str, payload: ReportRequest):
     record = _get_record(investigation_id)
-    report = await reporter.generate(record, language=payload.language, include_raw_context=payload.include_raw_context)
+    report = await reporter.generate(record, include_raw_context=payload.include_raw_context)
     store.add_report(investigation_id, report)
     return report
 
@@ -145,63 +146,32 @@ async def import_watchlist(payload: WatchlistImportRequest):
 
     if payload.format == "csv":
         reader = csv.DictReader(io.StringIO(payload.payload))
-        for row_idx, row in enumerate(reader, start=1):
-            try:
-                address = row.get("address", "").strip()
-                if not address:
-                    raise ValueError("missing address")
-                entry = WatchlistEntry(
-                    address=address,
-                    label=row.get("label", "").strip() or "unlabeled",
-                    category=row.get("category", "").strip() or payload.default_category,
-                    severity=row.get("severity", "").strip() or payload.default_severity,
-                    notes=row.get("notes", "").strip(),
-                )
-                try:
-                    store.get_watchlist_entry(entry.address.lower())
-                    is_update = True
-                except KeyError:
-                    is_update = False
-                store.upsert_watchlist_entry(entry)
-                if is_update:
-                    updated += 1
-                else:
-                    imported += 1
-                if entry.category.lower() in DIRECT_HIT_CATEGORIES:
-                    direct_hit_count += 1
-            except Exception as exc:
-                errors.append(WatchlistImportError(row=row_idx, reason=str(exc)))
+        rows_iter: list[dict] = list(reader)
     elif payload.format == "json":
         try:
-            rows = json.loads(payload.payload)
+            rows_iter = json.loads(payload.payload)
         except json.JSONDecodeError as exc:
             raise HTTPException(status_code=400, detail=f"Invalid JSON: {exc}") from exc
-        for row_idx, row in enumerate(rows, start=1):
+    else:
+        rows_iter = []
+
+    for row_idx, row in enumerate(rows_iter, start=1):
+        try:
+            entry = _ingest_watchlist_row(row, payload.default_category, payload.default_severity)
             try:
-                address = row.get("address", "").strip()
-                if not address:
-                    raise ValueError("missing address")
-                entry = WatchlistEntry(
-                    address=address,
-                    label=row.get("label", "").strip() or "unlabeled",
-                    category=row.get("category", "").strip() or payload.default_category,
-                    severity=row.get("severity", payload.default_severity),
-                    notes=row.get("notes", "").strip(),
-                )
-                try:
-                    store.get_watchlist_entry(entry.address.lower())
-                    is_update = True
-                except KeyError:
-                    is_update = False
-                store.upsert_watchlist_entry(entry)
-                if is_update:
-                    updated += 1
-                else:
-                    imported += 1
-                if entry.category.lower() in DIRECT_HIT_CATEGORIES:
-                    direct_hit_count += 1
-            except Exception as exc:
-                errors.append(WatchlistImportError(row=row_idx, reason=str(exc)))
+                store.get_watchlist_entry(entry.address.lower())
+                is_update = True
+            except KeyError:
+                is_update = False
+            store.upsert_watchlist_entry(entry)
+            if is_update:
+                updated += 1
+            else:
+                imported += 1
+            if entry.category.lower() in DIRECT_HIT_CATEGORIES:
+                direct_hit_count += 1
+        except Exception as exc:
+            errors.append(WatchlistImportError(row=row_idx, reason=str(exc)))
 
     return WatchlistImportResult(
         imported=imported,
@@ -209,6 +179,19 @@ async def import_watchlist(payload: WatchlistImportRequest):
         skipped=skipped,
         direct_hit_count=direct_hit_count,
         errors=errors,
+    )
+
+
+def _ingest_watchlist_row(row: dict, default_category: str, default_severity: str) -> WatchlistEntry:
+    address = row.get("address", "").strip()
+    if not address:
+        raise ValueError("missing address")
+    return WatchlistEntry(
+        address=address,
+        label=row.get("label", "").strip() or "unlabeled",
+        category=row.get("category", "").strip() or default_category,
+        severity=row.get("severity", "").strip() or default_severity,
+        notes=row.get("notes", "").strip(),
     )
 
 

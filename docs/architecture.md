@@ -28,6 +28,8 @@ This project is a local AML risk operations tool for Cregis compliance and risk 
 
 Raindrop is used in the experimental risk judgment layer. It must not override strong compliance evidence. The UI exposes `rule_score`, `raindrop_score`, and `final_risk_score` separately so analysts can distinguish source-backed findings from ML prioritization.
 
+**Canonical interface (frozen):** `RaindropAmlScorer.predict(graph) -> RaindropResult` in `services/api/app/ml/raindrop_scorer.py`. The `RaindropResult` dataclass has fields `score`, `features`, `explanation`, and `model_version`. The duplicate `raindrop_aml.py` (which returned a `tuple[float, dict]`) was deleted during round-one Karpathy §2 cleanup.
+
 ## Direct-Hit Policy
 
 OFAC/sanctions, PEP, Circle/Tether/stablecoin blacklist, and local critical watchlist categories are direct-hit signals. They produce a high-risk label and `hold_for_manual_review` disposition even when the total behavioral score is below the normal high-risk threshold. Pattern-only signals produce review priority unless paired with source-backed evidence.

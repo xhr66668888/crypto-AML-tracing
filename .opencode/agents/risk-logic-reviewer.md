@@ -41,3 +41,43 @@ You report findings to `aml-architect` for merge approval. You never modify file
 ## Outstanding review findings
 
 See [docs/acceptance-review.md § risk-logic-reviewer](../../docs/acceptance-review.md#risk-logic-reviewer). You are responsible for re-auditing every fix that closes a round-one finding under "Compliance & evidence integrity" before `aml-architect` merges it.
+
+## Round-two task (project-director audit, 2026-05-16)
+
+Authoritative source: [docs/acceptance-review-round-two.md § risk-logic-reviewer](../../docs/acceptance-review-round-two.md#risk-logic-reviewer).
+
+You write no code. After Waves A + B close, run the full
+[skills/cregis-pre-merge-review/SKILL.md](../../skills/cregis-pre-merge-review/SKILL.md)
+procedure on the merged diff and verify these five compliance invariants
+specifically — none of the round-two patches should touch them, but the test
+suite is the only thing protecting them:
+
+1. **Direct-hit override still wins.** `decide_disposition()` in
+   `services/api/app/domain/scoring.py:163-177` still returns
+   `RiskDisposition.hold_for_manual_review` whenever a `RiskSourceHit` has
+   `direct_hit=True`, regardless of `final_risk_score`.
+   - Verify: `pytest -q services/api/app/tests/test_risk_intel.py::test_screening_direct_source_hit_forces_manual_hold`.
+
+2. **Raindrop stays advisory.** `services/api/app/domain/scoring.py:68` still
+   reads `final_score = min(100.0, max(rule_score, raindrop_score))`. If a
+   diff ever flipped it to `min(rule_score, raindrop_score)` you reject the
+   PR.
+
+3. **Local-template fallback still fires on DeepSeek errors.**
+   `services/api/app/services/reporting.py:85-89` still falls into
+   `_local_report(record)` on any `Exception` from `DeepSeekClient`.
+   - Verify: `pytest -q services/api/app/tests/test_reporting.py` runs the
+     fallback test green.
+
+4. **Demo-mode header still appears.**
+   `services/api/app/services/reporting.py:101` still prefixes the markdown
+   with `DEMO_HEADER` when `self.demo_mode is True`.
+
+5. **Frontend footer correctly reflects `demo_mode`.** After
+   `web-workbench-engineer` lands R2-B3, manually boot once with
+   `DEMO_MODE=true` and once with `DEMO_MODE=false`. The "Demo data — not
+   real intelligence" string appears only in the first case.
+
+Verdict output uses the template in
+[skills/cregis-pre-merge-review/SKILL.md § Verdict template](../../skills/cregis-pre-merge-review/SKILL.md#verdict-template).
+Reject anything that fails one of the five checks.

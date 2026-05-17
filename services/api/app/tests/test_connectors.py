@@ -11,8 +11,6 @@ Covers:
 
 from __future__ import annotations
 
-import asyncio
-import hashlib
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -117,16 +115,6 @@ class TestEtherscanDemoMode:
         assert detail1["hash"] == tx_hash
         assert detail1["value_eth"] == 4.2
         assert detail1["source"] == "demo"
-
-    @pytest.mark.asyncio
-    async def test_get_internal_transactions_deterministic(self, client: EtherscanClient):
-        tx_hash = "0x" + "c" * 64
-        internals1 = await client.get_internal_transactions(tx_hash)
-        internals2 = await client.get_internal_transactions(tx_hash)
-        assert internals1 == internals2
-        assert len(internals1) >= 1
-        for tx in internals1:
-            assert tx["source"] == "demo"
 
     @pytest.mark.asyncio
     async def test_different_addresses_yield_different_data(self, client: EtherscanClient):

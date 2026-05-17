@@ -9,7 +9,6 @@ Feature schema version: 1
 
 from __future__ import annotations
 
-import math
 from collections import Counter
 from statistics import pstdev
 

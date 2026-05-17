@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
 
 class InvestigationMode(str, Enum):
@@ -186,7 +186,6 @@ class ScreeningResponse(BaseModel):
 
 
 class ReportRequest(BaseModel):
-    language: str = "en"
     include_raw_context: bool = True
 
 

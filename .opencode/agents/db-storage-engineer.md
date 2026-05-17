@@ -38,3 +38,66 @@ You are `db-storage-engineer`. You define how the workbench remembers what it ha
 ## Outstanding review findings
 
 See [docs/acceptance-review.md § db-storage-engineer](../../docs/acceptance-review.md#db-storage-engineer). Round-one blockers: the 442-line `PostgresStore` raises `NotImplementedError` and is never instantiated — it is speculative code under the Karpathy §2 bar. Either gate it behind `DATABASE_URL` + an integration test that actually runs, or delete it and keep the schema as the contract.
+
+## Round-two task (project-director audit, 2026-05-16)
+
+Authoritative source: [docs/acceptance-review-round-two.md § db-storage-engineer](../../docs/acceptance-review-round-two.md#db-storage-engineer).
+
+Round one deleted `services/api/app/storage/postgres.py` (Option A). The
+matching cleanup in `services/api/app/storage/factory.py` was missed, so
+**setting `DATABASE_URL` + installing `psycopg2-binary` crashes the API at
+startup** with `ModuleNotFoundError: No module named 'app.storage.postgres'`.
+This is a Karpathy §3 violation: your round-one delete orphaned a caller and
+the caller was not pruned.
+
+Goal (R2-B1 + R2-C4):
+
+1. Rewrite `services/api/app/storage/factory.py` to:
+
+   ```python
+   from app.storage.base import StorageAdapter
+   from app.storage.memory import InMemoryStore
+
+
+   def get_store() -> StorageAdapter:
+       return InMemoryStore()
+   ```
+
+   Drop `importlib`, `os`, `warnings`, and `_psycopg2_available`. They were
+   only there to support the dead `PostgresStore` branch.
+
+2. Delete the two `DATABASE_URL` comment lines from
+   [`.env.example`](../../.env.example) (`# Set DATABASE_URL …` and
+   `# DATABASE_URL=postgresql://…`). They advertise a switch the code no
+   longer supports — Karpathy §1.
+
+3. Update [`docs/database/swap-to-postgres.md`](../../docs/database/swap-to-postgres.md):
+   add a line at the top of "Implementation checklist (for future PR)" that
+   reads "Step 0 — restore the `DATABASE_URL` branch in
+   `app/storage/factory.py` that round two removed."
+
+Goal-driven plan:
+
+```
+1. Patch factory.py                           → verify: file reads 5 lines after imports
+2. Patch .env.example                          → verify: grep -n DATABASE_URL .env.example  (empty)
+3. Re-run factory reproducer from round-two   → verify: ok, not ModuleNotFoundError
+4. Re-run pytest                                → verify: 223/223 still pass
+5. Patch swap-to-postgres.md                   → verify: Step 0 line present
+```
+
+Concrete reproducer (must print `ok`, not crash):
+
+```bash
+PYTHONPATH=.python-deps:services/api python3 -c "
+import os; os.environ['DATABASE_URL']='postgresql://x:x@y/z'
+from app.storage.factory import get_store
+assert type(get_store()).__name__ == 'InMemoryStore'
+print('ok')
+"
+```
+
+You do not touch `base.py`, `memory.py`, or any test file. If your diff
+touches anything outside `factory.py`, `.env.example`, and
+`docs/database/swap-to-postgres.md`, you have left your owned paths — route
+through `aml-architect`.

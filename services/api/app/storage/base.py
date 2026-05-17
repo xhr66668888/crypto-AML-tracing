@@ -1,12 +1,11 @@
 """Abstract storage adapter interface.
 
-All storage implementations (InMemoryStore, PostgresStore) must implement this
-interface to ensure API routes and domain services remain storage-agnostic.
+All storage implementations (InMemoryStore) must implement this interface to
+ensure API routes and domain services remain storage-agnostic.
 """
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from datetime import datetime
 from typing import Any
 
 from app.domain.models import (
@@ -14,7 +13,6 @@ from app.domain.models import (
     InvestigationRecord,
     InvestigationStatus,
     ReportResponse,
-    RiskLevel,
     ScreeningResponse,
     WatchlistEntry,
 )
@@ -74,11 +72,6 @@ class StorageAdapter(ABC):
         """Return all screening events sorted by created_at descending."""
         ...
 
-    @abstractmethod
-    def get_screening_event(self, event_id: str) -> ScreeningResponse:
-        """Return a screening event by ID. Raises KeyError if not found."""
-        ...
-
     # ── Watchlist CRUD ──────────────────────────────────────────────────────
 
     @abstractmethod
@@ -109,82 +102,4 @@ class StorageAdapter(ABC):
     @abstractmethod
     def clear_watchlist(self) -> None:
         """Remove all watchlist entries."""
-        ...
-
-    # ── Risk Source Hit CRUD ────────────────────────────────────────────────
-
-    @abstractmethod
-    def add_risk_source_hit(self, hit: dict[str, Any]) -> dict[str, Any]:
-        """Store a risk source hit record."""
-        ...
-
-    @abstractmethod
-    def list_risk_source_hits(
-        self,
-        investigation_id: str | None = None,
-        screening_event_id: str | None = None,
-    ) -> list[dict[str, Any]]:
-        """Return risk source hits, optionally filtered by investigation or screening event."""
-        ...
-
-    # ── Pattern Signal CRUD ─────────────────────────────────────────────────
-
-    @abstractmethod
-    def add_pattern_signal(self, signal: dict[str, Any]) -> dict[str, Any]:
-        """Store a pattern signal record."""
-        ...
-
-    @abstractmethod
-    def list_pattern_signals(
-        self,
-        investigation_id: str | None = None,
-        screening_event_id: str | None = None,
-    ) -> list[dict[str, Any]]:
-        """Return pattern signals, optionally filtered by investigation or screening event."""
-        ...
-
-    # ── Network Metrics CRUD ────────────────────────────────────────────────
-
-    @abstractmethod
-    def add_network_metric(self, metric: dict[str, Any]) -> dict[str, Any]:
-        """Store a network metric record."""
-        ...
-
-    @abstractmethod
-    def list_network_metrics(self, investigation_id: str) -> list[dict[str, Any]]:
-        """Return network metrics for an investigation."""
-        ...
-
-    # ── AI Report CRUD ──────────────────────────────────────────────────────
-
-    @abstractmethod
-    def add_ai_report(self, report: dict[str, Any]) -> dict[str, Any]:
-        """Store an AI report record."""
-        ...
-
-    @abstractmethod
-    def list_ai_reports(self, investigation_id: str) -> list[dict[str, Any]]:
-        """Return AI reports for an investigation."""
-        ...
-
-    # ── Audit Log ───────────────────────────────────────────────────────────
-
-    @abstractmethod
-    def append_audit_log(
-        self,
-        action: str,
-        subject: str,
-        actor: str = "local-user",
-        metadata: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        """Append an audit log entry."""
-        ...
-
-    @abstractmethod
-    def list_audit_logs(
-        self,
-        actor: str | None = None,
-        limit: int = 100,
-    ) -> list[dict[str, Any]]:
-        """Return audit logs, optionally filtered by actor."""
         ...
