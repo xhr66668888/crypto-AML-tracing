@@ -1,19 +1,14 @@
-# Subagent Assignments
+# Ownership and Required Skills
 
-This project is delivered by ten OpenCode subagents instead of named human
-programmers. Two are brain agents (architecture + risk-logic review) that **inherit
-the OpenCode default model** (`mimo-v2.5-pro` in this setup) — no per-file
-model override, so they follow whatever default the user has configured.. Eight are execution agents that **inherit
-the OpenCode default model** (`mimo-v2.5-pro` in this setup) — no per-file
-model override, so they follow whatever default the user has configured.
-
-Agent definitions live in [.opencode/agents/](../.opencode/agents).
+This project uses role-based ownership to keep changes small and reviewable.
+The role names below are review and routing labels, not separate files that
+must exist in the repository.
 
 ## Mandatory reading for every agent
 
 Before editing any file, an agent MUST read:
 
-1. [`AGENTS.md`](../AGENTS.md) — universal discovery file at repo root.
+1. [`docs/agent-skills.md`](agent-skills.md) — live skill index.
 2. [`skills/cregis-code-quality/SKILL.md`](../skills/cregis-code-quality/SKILL.md)
    — project-customised Karpathy guidelines and project-director acceptance
    checks.
@@ -27,11 +22,10 @@ If the agent touches scoring, patterns, direct-hit, or report content, also
 read
 [`skills/cregis-evidence-integrity/SKILL.md`](../skills/cregis-evidence-integrity/SKILL.md).
 
-## Brain Agents (Codex GPT 5.5, `reasoningEffort: high`)
+## Review Roles
 
 ### `aml-architect` — Principal Architect & Release Commander
 
-- File: [.opencode/agents/aml-architect.md](../.opencode/agents/aml-architect.md)
 - Owns: API routes in `services/api/app/main.py`, request/response models in
   `services/api/app/domain/models.py`, `docs/database/schema.sql`, module
   boundaries, `.env.example`, `services/api/app/core/`, direct-hit policy,
@@ -45,7 +39,6 @@ read
 
 ### `risk-logic-reviewer` — Compliance Brain (read-only)
 
-- File: [.opencode/agents/risk-logic-reviewer.md](../.opencode/agents/risk-logic-reviewer.md)
 - Audits: pattern correctness, scoring calibration, direct-hit semantics,
   source-hit semantics, report hallucination risk, evidence-chain integrity.
 - Deliverables: structured `approved` / `approved-with-changes` / `blocked`
@@ -56,11 +49,10 @@ read
   [`acceptance-review.md § risk-logic-reviewer`](acceptance-review.md#risk-logic-reviewer)
   — `approved`.
 
-## Execution Agents (OpenCode default model, e.g. `mimo-v2.5-pro`)
+## Execution Roles
 
 ### `connector-engineer` — Third-Party Provider Integration
 
-- File: [.opencode/agents/connector-engineer.md](../.opencode/agents/connector-engineer.md)
 - Owns: `services/api/app/connectors/` (Etherscan, GoPlus) and the DeepSeek
   HTTP transport inside `services/api/app/services/reporting.py`.
 - Deliverables: timeouts, bounded retries, structured `ConnectorError`,
@@ -71,7 +63,6 @@ read
 
 ### `graph-pattern-engineer` — Graph & Pattern Algorithms
 
-- File: [.opencode/agents/graph-pattern-engineer.md](../.opencode/agents/graph-pattern-engineer.md)
 - Owns: `services/api/app/domain/graph_builder.py`,
   `services/api/app/domain/patterns.py`, network metrics, pattern fixtures.
 - Deliverables: bounded 3-hop stable / 5-hop experimental tracing;
@@ -85,7 +76,6 @@ read
 
 ### `risk-intel-engineer` — Risk Intelligence & Direct-Hit
 
-- File: [.opencode/agents/risk-intel-engineer.md](../.opencode/agents/risk-intel-engineer.md)
 - Owns: `services/api/app/domain/risk_intel.py`, the rule-score side of
   `services/api/app/domain/scoring.py`, watchlist persistence inside
   `services/api/app/storage/`, watchlist import endpoint in
@@ -100,7 +90,6 @@ read
 
 ### `raindrop-ml-engineer` — Raindrop AML Risk Layer
 
-- File: [.opencode/agents/raindrop-ml-engineer.md](../.opencode/agents/raindrop-ml-engineer.md)
 - Owns: `services/api/app/ml/` and the future
   `services/ml/raindrop_aml/`.
 - Deliverables: stable `RaindropAmlScorer.predict(graph) -> RaindropResult`
@@ -113,7 +102,6 @@ read
 
 ### `report-engineer` — AI Report Generation
 
-- File: [.opencode/agents/report-engineer.md](../.opencode/agents/report-engineer.md)
 - Owns: `services/api/app/services/reporting.py` (prompt templates, local
   fallback, schema, content shape).
 - Deliverables: evidence-faithful English report; explicit
@@ -125,7 +113,6 @@ read
 
 ### `web-workbench-engineer` — React Analyst Workbench
 
-- File: [.opencode/agents/web-workbench-engineer.md](../.opencode/agents/web-workbench-engineer.md)
 - Owns: `apps/web/src/App.tsx`, `apps/web/src/styles.css`, OPPO Sans loading,
   Vite config.
 - Deliverables: Wise design tokens from `DESIGN.md`; Cytoscape graph with
@@ -137,7 +124,6 @@ read
 
 ### `qa-devops-engineer` — Quality, Tests, Deploy
 
-- File: [.opencode/agents/qa-devops-engineer.md](../.opencode/agents/qa-devops-engineer.md)
 - Owns: `infra/scripts/`, `.github/workflows/`, `docker-compose.yml`,
   `pytest.ini`, smoke tests, `.env.example` implementation, deploy/run docs.
 - Deliverables: one-command demo-mode boot, smoke script for the V1
@@ -150,7 +136,6 @@ read
 
 ### `db-storage-engineer` — Persistence Boundary
 
-- File: [.opencode/agents/db-storage-engineer.md](../.opencode/agents/db-storage-engineer.md)
 - Owns: `docs/database/schema.sql`, `services/api/app/storage/`, migration /
   seed scripts.
 - Deliverables: schema for screening events, source hits, pattern signals,
@@ -183,16 +168,10 @@ read
    The project director will reject any PR that violates a hard blocker
    without re-review.
 
-## Invocation Hints
+## Review Hints
 
-- Explicit invocation in the OpenCode chat box: `@aml-architect`,
-  `@risk-logic-reviewer`, `@connector-engineer`, etc.
 - Mention by role inside a message: "Have `risk-logic-reviewer` audit the
   new direct-hit list."
-- Parallel work: ask the primary agent (Build) to "use the Task tool to
-  dispatch X, Y, Z in parallel" in a single turn — they run as concurrent
-  child sessions and report back. See [`.opencode/README.md`](../.opencode/README.md)
-  for the one-shot delivery prompt.
-- For a fresh acceptance audit at any time, ask the project director to run
+- For a fresh acceptance audit at any time, run
   [`skills/cregis-pre-merge-review/SKILL.md`](../skills/cregis-pre-merge-review/SKILL.md)
   against the current branch.

@@ -1,7 +1,8 @@
 export type RiskLevel = "low" | "medium" | "high" | "critical";
 export type RiskDisposition = "allow" | "review" | "hold_for_manual_review" | "reject";
 export type TransferDirection = "inbound" | "outbound";
-export type AssetSymbol = "ETH" | "USDT" | "USDC";
+export type AssetSymbol = string;
+export type AssetType = "native" | "erc20";
 
 export interface InvestigationRecord {
   status: InvestigationStatus;
@@ -38,6 +39,7 @@ export interface GraphEdge {
   tx_hash: string;
   value_eth: number;
   hop: number;
+  metadata?: Record<string, unknown>;
 }
 
 export interface InvestigationGraph {
@@ -54,6 +56,7 @@ export interface Finding {
   evidence: string;
   source: string;
   hop?: number;
+  metadata?: Record<string, unknown>;
 }
 
 export interface PatternSignal {
@@ -63,7 +66,7 @@ export interface PatternSignal {
   subject: string;
   evidence: string;
   confidence: number;
-  metadata: Record<string, number | string | boolean>;
+  metadata: Record<string, unknown>;
 }
 
 export interface SourceHit {
@@ -74,7 +77,9 @@ export interface SourceHit {
   label: string;
   evidence: string;
   confidence: number;
+  source_updated_at?: string | null;
   direct_hit: boolean;
+  raw_payload?: Record<string, unknown>;
 }
 
 export interface RiskResponse {
@@ -103,8 +108,9 @@ export interface ScreeningResponse {
   chain_id: string;
   asset: AssetSymbol;
   direction: TransferDirection;
-  from_address: string;
-  to_address: string;
+  counterparty_address: string;
+  from_address?: string | null;
+  to_address?: string | null;
   amount: number;
   risk_score: number;
   risk_level: RiskLevel;
@@ -114,4 +120,19 @@ export interface ScreeningResponse {
   source_hits: SourceHit[];
   evidence_summary: string[];
   recommended_actions: string[];
+  data_freshness: Record<string, string>;
+  graph_investigation_id?: string | null;
+  created_at?: string;
+}
+
+export interface ScreeningRequest {
+  chain_id: string;
+  direction: TransferDirection;
+  asset?: string;
+  asset_type?: AssetType;
+  token_address?: string;
+  counterparty_address: string;
+  amount?: number;
+  customer_id?: string;
+  team_id?: string;
 }

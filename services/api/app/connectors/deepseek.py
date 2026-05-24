@@ -71,6 +71,7 @@ class DeepSeekClient:
                 {"role": "user", "content": json.dumps(context, ensure_ascii=False)},
             ],
             "stream": False,
+            "max_tokens": 1200,
         }
 
         data = await self._post(

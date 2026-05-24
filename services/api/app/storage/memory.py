@@ -1,11 +1,13 @@
-"""In-memory storage adapter (default for V1).
+"""Local storage adapter (default for V1).
 
-Implements the StorageAdapter interface for V1 API endpoints.
-Data is lost on process restart — acceptable for demo/MVP usage.
+Investigations and screening events stay in memory. Watchlist rows can be
+persisted to a local JSON file so public-dataset imports survive API restarts.
 """
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
+from pathlib import Path
 from uuid import uuid4
 
 from app.domain.models import (
@@ -28,10 +30,12 @@ class InMemoryStore(StorageAdapter):
     adapter can replace this without changing API routes or domain services.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, watchlist_path: str = "") -> None:
         self._records: dict[str, InvestigationRecord] = {}
         self._watchlist: dict[str, WatchlistEntry] = {}
         self._screenings: dict[str, ScreeningResponse] = {}
+        self._watchlist_path = Path(watchlist_path) if watchlist_path.strip() else None
+        self._load_watchlist()
 
     # ── Investigation CRUD ──────────────────────────────────────────────────
 
@@ -108,6 +112,7 @@ class InMemoryStore(StorageAdapter):
     def upsert_watchlist_entry(self, entry: WatchlistEntry) -> WatchlistEntry:
         normalized = entry.model_copy(update={"address": entry.address.lower()})
         self._watchlist[normalized.address] = normalized
+        self._persist_watchlist()
         return normalized
 
     def list_watchlist_entries(self) -> list[WatchlistEntry]:
@@ -123,6 +128,7 @@ class InMemoryStore(StorageAdapter):
         key = address.lower()
         if key in self._watchlist:
             del self._watchlist[key]
+            self._persist_watchlist()
             return True
         return False
 
@@ -131,3 +137,21 @@ class InMemoryStore(StorageAdapter):
 
     def clear_watchlist(self) -> None:
         self._watchlist.clear()
+        self._persist_watchlist()
+
+    def _load_watchlist(self) -> None:
+        if self._watchlist_path is None or not self._watchlist_path.exists():
+            return
+        rows = json.loads(self._watchlist_path.read_text(encoding="utf-8"))
+        if not isinstance(rows, list):
+            raise ValueError(f"Expected list in watchlist persistence file: {self._watchlist_path}")
+        for row in rows:
+            entry = WatchlistEntry.model_validate(row)
+            self._watchlist[entry.address.lower()] = entry.model_copy(update={"address": entry.address.lower()})
+
+    def _persist_watchlist(self) -> None:
+        if self._watchlist_path is None:
+            return
+        self._watchlist_path.parent.mkdir(parents=True, exist_ok=True)
+        rows = [entry.model_dump(mode="json") for entry in self.list_watchlist_entries()]
+        self._watchlist_path.write_text(json.dumps(rows, indent=2, sort_keys=True) + "\n", encoding="utf-8")

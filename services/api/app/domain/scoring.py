@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from app.domain.models import (
+    DIRECT_HIT_CATEGORIES,
     GraphNode,
     InvestigationGraph,
     PatternSignal,
@@ -13,6 +16,76 @@ from app.domain.models import (
 from app.domain.patterns import PatternAnalyzer
 from app.domain.risk_intel import SEVERITY_WEIGHTS, RiskIntelAggregator
 from app.ml.raindrop_scorer import RaindropAmlScorer
+
+
+DEGRADED_PROVIDER_SIGNAL_NAMES = frozenset(
+    {
+        "provider_unavailable",
+        "stablecoin_blacklist_unavailable",
+        "token_contract_risk_unavailable",
+    }
+)
+
+
+@dataclass(frozen=True)
+class RiskDecisionPolicy:
+    """Business disposition policy kept separate from numeric score generation."""
+
+    hold_score: float = 85.0
+    review_score: float = 35.0
+    direct_hit_categories: tuple[str, ...] = tuple(sorted(DIRECT_HIT_CATEGORIES))
+    degraded_signal_names: tuple[str, ...] = tuple(sorted(DEGRADED_PROVIDER_SIGNAL_NAMES))
+
+    def decide(
+        self,
+        score: float,
+        source_hits: list[RiskSourceHit],
+        pattern_signals: list[PatternSignal],
+    ) -> RiskDisposition:
+        if self._has_direct_hit(source_hits):
+            return RiskDisposition.hold_for_manual_review
+        if score >= self.hold_score:
+            return RiskDisposition.hold_for_manual_review
+        if score >= self.review_score or self._has_review_signal(pattern_signals):
+            return RiskDisposition.review
+        return RiskDisposition.allow
+
+    def recommended_actions(
+        self,
+        disposition: RiskDisposition,
+        source_hits: list[RiskSourceHit],
+        pattern_signals: list[PatternSignal],
+    ) -> list[str]:
+        actions: list[str] = []
+        if self._has_direct_hit(source_hits):
+            actions.append("Hold funds for manual compliance review and verify the authoritative source evidence.")
+        if any(hit.category.lower() in {"pep", "ofac", "sanctions", "sanctioned"} for hit in source_hits):
+            actions.append("Escalate to the sanctions/PEP review workflow before customer release.")
+        if self._has_degraded_signal(pattern_signals):
+            actions.append("Review with degraded provider evidence; retry unavailable checks before final approval.")
+        if any(signal.name in {"dusting", "dusting_counterparty"} for signal in pattern_signals):
+            actions.append("Warn the operator about recent dusting-like behavior before approving withdrawal.")
+        if any(signal.name in {"layering", "aggregation", "peel_chain"} for signal in pattern_signals):
+            actions.append("Open a deeper investigation case and preserve the graph evidence.")
+        if disposition == RiskDisposition.review and not actions:
+            actions.append("Queue for manual risk review with the attached evidence.")
+        if disposition == RiskDisposition.allow:
+            actions.append("Allow if no additional business-rule controls apply.")
+        return actions
+
+    def _has_direct_hit(self, source_hits: list[RiskSourceHit]) -> bool:
+        direct_categories = set(self.direct_hit_categories)
+        return any(hit.direct_hit or hit.category.lower() in direct_categories for hit in source_hits)
+
+    def _has_review_signal(self, pattern_signals: list[PatternSignal]) -> bool:
+        return any(signal.severity == RiskLevel.high for signal in pattern_signals) or self._has_degraded_signal(pattern_signals)
+
+    def _has_degraded_signal(self, pattern_signals: list[PatternSignal]) -> bool:
+        degraded_names = set(self.degraded_signal_names)
+        return any(signal.name in degraded_names for signal in pattern_signals)
+
+
+DEFAULT_DECISION_POLICY = RiskDecisionPolicy()
 
 
 class RiskScoringEngine:
@@ -165,16 +238,7 @@ def decide_disposition(
     source_hits: list[RiskSourceHit],
     pattern_signals: list[PatternSignal],
 ) -> RiskDisposition:
-    direct_hits = [hit for hit in source_hits if hit.direct_hit]
-    if any(hit.severity == RiskLevel.critical for hit in direct_hits):
-        return RiskDisposition.hold_for_manual_review
-    if direct_hits:
-        return RiskDisposition.hold_for_manual_review
-    if score >= 85:
-        return RiskDisposition.hold_for_manual_review
-    if score >= 35 or any(signal.severity == RiskLevel.high for signal in pattern_signals):
-        return RiskDisposition.review
-    return RiskDisposition.allow
+    return DEFAULT_DECISION_POLICY.decide(score, source_hits, pattern_signals)
 
 
 def recommended_actions(
@@ -182,17 +246,4 @@ def recommended_actions(
     source_hits: list[RiskSourceHit],
     pattern_signals: list[PatternSignal],
 ) -> list[str]:
-    actions: list[str] = []
-    if any(hit.direct_hit for hit in source_hits):
-        actions.append("Hold funds for manual compliance review and verify the authoritative source evidence.")
-    if any(hit.category.lower() in {"pep", "ofac", "sanctions", "sanctioned"} for hit in source_hits):
-        actions.append("Escalate to the sanctions/PEP review workflow before customer release.")
-    if any(signal.name in {"dusting", "dusting_counterparty"} for signal in pattern_signals):
-        actions.append("Warn the operator about recent dusting-like behavior before approving withdrawal.")
-    if any(signal.name in {"layering", "aggregation", "peel_chain"} for signal in pattern_signals):
-        actions.append("Open a deeper investigation case and preserve the graph evidence.")
-    if disposition == RiskDisposition.review and not actions:
-        actions.append("Queue for manual risk review with the attached evidence.")
-    if disposition == RiskDisposition.allow:
-        actions.append("Allow if no additional business-rule controls apply.")
-    return actions
+    return DEFAULT_DECISION_POLICY.recommended_actions(disposition, source_hits, pattern_signals)

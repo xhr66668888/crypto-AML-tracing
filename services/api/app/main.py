@@ -7,24 +7,27 @@ import json
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.connectors.base import ConnectorError
+from app.connectors.deepseek import DeepSeekClient
 from app.connectors.etherscan import EtherscanClient
 from app.connectors.goplus import GoPlusClient
+from app.connectors.stablecoin_blacklist import StablecoinBlacklistClient
 from app.core.config import get_settings
 from app.domain.graph_builder import GraphBuilder
 from app.domain.models import (
     DIRECT_HIT_CATEGORIES,
     InvestigationCreate,
+    PreTransactionScreeningCreate,
     ReportRequest,
-    ScreeningTransactionCreate,
+    RiskLevel,
     WatchlistEntry,
+    WatchlistImportError,
     WatchlistImportRequest,
     WatchlistImportResult,
-    WatchlistImportError,
 )
 from app.domain.patterns import PatternAnalyzer
-from app.domain.risk_intel import RiskIntelAggregator
+from app.domain.risk_intel import RiskIntelAggregator, _source_for_category
 from app.domain.scoring import RiskScoringEngine
-from app.connectors.deepseek import DeepSeekClient
 from app.ml.raindrop_scorer import RaindropAmlScorer
 from app.services.investigation import InvestigationService
 from app.services.reporting import ReportGenerator
@@ -47,14 +50,30 @@ goplus = GoPlusClient(
     timeout_seconds=settings.goplus_timeout_seconds,
     max_retries=settings.connector_max_retries,
 )
+stablecoin_blacklist = StablecoinBlacklistClient(
+    rpc_url=settings.ethereum_rpc_url,
+    demo_mode=settings.demo_mode,
+    timeout_seconds=settings.ethereum_rpc_timeout_seconds,
+    max_retries=settings.connector_max_retries,
+)
 intel = RiskIntelAggregator(goplus)
 raindrop = RaindropAmlScorer()
 patterns = PatternAnalyzer()
 graph_builder = GraphBuilder(etherscan, settings.max_stable_nodes, settings.max_experimental_nodes)
 scoring = RiskScoringEngine(intel, raindrop, patterns)
 investigations = InvestigationService(store, graph_builder, scoring)
-screening = ScreeningService(store, graph_builder, scoring, patterns)
-reporter = ReportGenerator(deepseek=DeepSeekClient(api_key=settings.deepseek_api_key, base_url=settings.deepseek_base_url, model=settings.deepseek_model), demo_mode=settings.demo_mode)
+screening = ScreeningService(store, graph_builder, scoring, patterns, stablecoin_blacklist, goplus)
+reporter = ReportGenerator(
+    deepseek=DeepSeekClient(
+        api_key=settings.deepseek_api_key,
+        base_url=settings.deepseek_base_url,
+        model=settings.deepseek_model,
+        demo_mode=settings.demo_mode,
+        timeout_seconds=settings.deepseek_timeout_seconds,
+        max_retries=settings.connector_max_retries,
+    ),
+    demo_mode=settings.demo_mode,
+)
 
 app = FastAPI(title=settings.app_name, version="0.1.0")
 app.add_middleware(
@@ -76,12 +95,19 @@ async def create_investigation(payload: InvestigationCreate):
     return await investigations.create_and_run(payload)
 
 
-@app.post("/api/v1/screening/transactions")
-async def screen_transaction(payload: ScreeningTransactionCreate):
+@app.post("/api/v1/screening/pre-transactions")
+async def screen_pre_transaction(payload: PreTransactionScreeningCreate):
     try:
         return await screening.screen_transaction(payload)
+    except ConnectorError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/screening/transactions")
+async def screen_transaction(payload: PreTransactionScreeningCreate):
+    return await screen_pre_transaction(payload)
 
 
 @app.get("/api/v1/screening/events")
@@ -157,7 +183,13 @@ async def import_watchlist(payload: WatchlistImportRequest):
 
     for row_idx, row in enumerate(rows_iter, start=1):
         try:
-            entry = _ingest_watchlist_row(row, payload.default_category, payload.default_severity)
+            entry = _ingest_watchlist_row(
+                row,
+                payload.default_category,
+                payload.default_severity,
+                payload.default_source,
+                payload.default_source_version,
+            )
             try:
                 store.get_watchlist_entry(entry.address.lower())
                 is_update = True
@@ -182,17 +214,38 @@ async def import_watchlist(payload: WatchlistImportRequest):
     )
 
 
-def _ingest_watchlist_row(row: dict, default_category: str, default_severity: str) -> WatchlistEntry:
+def _ingest_watchlist_row(
+    row: dict,
+    default_category: str,
+    default_severity: str | RiskLevel,
+    default_source: str = "manual_import",
+    default_source_version: str = "",
+) -> WatchlistEntry:
     address = row.get("address", "").strip()
     if not address:
         raise ValueError("missing address")
+    category = row.get("category", "").strip() or default_category
+    evidence = row.get("evidence", "").strip() or row.get("notes", "").strip()
     return WatchlistEntry(
         address=address,
         label=row.get("label", "").strip() or "unlabeled",
-        category=row.get("category", "").strip() or default_category,
+        source=_watchlist_source(row.get("source", ""), category, default_source),
+        source_version=row.get("source_version", "").strip() or default_source_version,
+        category=category,
         severity=row.get("severity", "").strip() or default_severity,
+        evidence=evidence,
         notes=row.get("notes", "").strip(),
     )
+
+
+def _watchlist_source(source: str, category: str, default_source: str) -> str:
+    cleaned_source = source.strip()
+    if cleaned_source:
+        return cleaned_source
+    cleaned_default = default_source.strip()
+    if cleaned_default and cleaned_default != "manual_import":
+        return cleaned_default
+    return _source_for_category(category)
 
 
 @app.get("/api/v1/investigations/{investigation_id}/reports")

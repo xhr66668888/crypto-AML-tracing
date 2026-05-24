@@ -165,17 +165,13 @@ acceptance audit.
 
 `services/api/app/api/__init__.py` exists with only `"""HTTP API routes."""`
 inside. The package contains no `.py` files; every route lives inline in
-`services/api/app/main.py`. Two of the contract documents
-([`aml-architect.md`](../.opencode/agents/aml-architect.md) and
-[`team-assignments.md § aml-architect`](team-assignments.md)) claim ownership of
+`services/api/app/main.py`. The ownership docs claimed ownership of
 "API contracts in `services/api/app/api/`". The codebase silently disagrees.
 
 Pick one of two corrections and stay there:
 
 - **Option A — keep routes in `main.py`.** Delete the empty `api/` package and
   remove all "in `services/api/app/api/`" wording from
-  `.opencode/agents/aml-architect.md`,
-  `.opencode/agents/risk-intel-engineer.md`, and
   `docs/team-assignments.md`. This is the lowest-touch fix and matches the
   current code.
 - **Option B — split `main.py` into routers.** Move investigation, screening,
@@ -206,9 +202,9 @@ wrong. Either flip the overall verdict back to `approved-with-changes` and link
 this round-two doc, or wait until the round-two waves close before re-declaring
 `approved`.
 
-## Per-subagent fix list (Karpathy §4 — Goal-Driven Execution)
+## Per-role fix list (Karpathy §4 — Goal-Driven Execution)
 
-Each subagent has at most one round-two task. Tasks are written as
+Each role has at most one round-two task. Tasks are written as
 **verifiable goals, not instructions**. The agent must:
 
 1. Read the cited file/line.
@@ -225,10 +221,8 @@ Round-two tasks (all contract-shape):
    `services/api/app/domain/models.py:7` (this is `models.py`, your file).
 3. **R2-C3** — decide Option A vs Option B above; if A, delete
    `services/api/app/api/__init__.py` and the parent directory; if B, hand the
-   refactor to a new dedicated wave. Update
-   `.opencode/agents/aml-architect.md`,
-   `.opencode/agents/risk-intel-engineer.md`, and
-   `docs/team-assignments.md` to match the decision.
+   refactor to a new dedicated wave. Update `docs/team-assignments.md` to
+   match the decision.
 4. **R2-C5** — once R2-B1/B2/B3 close, re-baseline
    `docs/acceptance-review.md` to point at this document and re-declare
    `approved`.
@@ -237,7 +231,7 @@ Verification:
 
 ```bash
 ruff check --select F401 services/api/app/domain/models.py
-grep -rn 'services/api/app/api/' .opencode/agents docs   # must agree with code reality
+grep -rn 'services/api/app/api/' docs   # must agree with code reality
 ```
 
 ### `db-storage-engineer`

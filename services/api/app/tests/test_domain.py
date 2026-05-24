@@ -119,8 +119,7 @@ async def test_screening_direct_source_hit_forces_manual_hold():
         ScreeningTransactionCreate(
             asset="USDC",
             direction="outbound",
-            from_address="0x" + "a" * 40,
-            to_address=risky,
+            counterparty_address=risky,
             amount=9500,
         )
     )

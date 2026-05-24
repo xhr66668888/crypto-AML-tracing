@@ -17,13 +17,19 @@ V1 uses a local watchlist with manually imported entries. There is no integratio
 
 ---
 
-## 2. No Circle/Tether Official Blacklist Sync
+## 2. Circle/Tether RPC Coverage Is Ethereum-Only
 
-V1 does not automatically sync with Circle's USDC blacklist or Tether's USDT blacklist. Stablecoin blacklist entries must be manually imported into the local watchlist.
+V1 checks Circle USDC and Tether USDT blacklist status through Ethereum
+JSON-RPC during pre-transaction screening. It does not yet cover non-Ethereum
+deployments such as Tron, Avalanche, Base, Arbitrum, or Polygon.
 
-**Impact**: Real-time stablecoin blacklist enforcement is not available. Analysts must manually maintain the watchlist.
+**Impact**: USDC/USDT screening on Ethereum can generate direct-hit evidence,
+but non-Ethereum stablecoin blacklist enforcement is not available.
 
-**Mitigation**: The `category` field supports `circle_blacklist`, `tether_blacklist`, and `stablecoin_blacklist`. Entries with these categories trigger `direct_hit=True` and `hold_for_manual_review`.
+**Mitigation**: Use a stable private `ETHEREUM_RPC_URL` for production
+Ethereum checks. Non-Ethereum blacklist entries can still be manually imported
+into the local watchlist with `circle_blacklist`, `tether_blacklist`, or
+`stablecoin_blacklist` categories.
 
 ---
 
@@ -43,7 +49,22 @@ V1 supports Ethereum mainnet only (chain_id `"1"`). There is no support for:
 
 ---
 
-## 4. No Real ML Training
+## 4. Screening Context Is Lightweight, Not Full Provenance
+
+Pre-transaction screening expands both `from_address` and `to_address`, but only
+to at most 2 hops and 6 recent transactions per address. This is intentionally
+bounded for fast allow/review/hold decisions.
+
+**Impact**: A clean screening context does not prove complete fund provenance.
+It only means no high-risk evidence was found inside the bounded context and
+configured provider/watchlist checks.
+
+**Mitigation**: Use the deeper investigation workflow for post-transaction or
+case-level tracing.
+
+---
+
+## 5. No Real ML Training
 
 The Raindrop AML scorer (`RaindropAmlScorer`) uses a deterministic, rule-based feature scoring algorithm. There is no trained neural network, no PyTorch/PyG model, and no GPU inference.
 
@@ -53,7 +74,7 @@ The Raindrop AML scorer (`RaindropAmlScorer`) uses a deterministic, rule-based f
 
 ---
 
-## 5. No Enterprise Permissions / Approval Flows / Audit Backend
+## 6. No Enterprise Permissions / Approval Flows / Audit Backend
 
 V1 is a local-first tool with no authentication, authorization, role-based access control, or approval workflows.
 
@@ -71,7 +92,7 @@ V1 is a local-first tool with no authentication, authorization, role-based acces
 
 ---
 
-## 6. No Real-Time Provider Streaming
+## 7. No Real-Time Provider Streaming
 
 V1 fetches Etherscan and GoPlus data on-demand per investigation. There is no:
 
@@ -84,15 +105,19 @@ V1 fetches Etherscan and GoPlus data on-demand per investigation. There is no:
 
 ---
 
-## 7. No OFAC/SDN Official Feed Integration
+## 8. Partial OFAC Official Feed Integration
 
-V1 does not automatically import or sync with the official OFAC SDN (Specially Designated Nationals) list, EU sanctions list, or UN sanctions list.
+V1 can manually or weekly sync OFAC SDN and OFAC Consolidated digital-currency
+address rows into the local persistent watchlist. UN, UK, EU, and other
+name/entity sanctions lists are not connected yet.
 
-**Impact**: Sanctions screening depends entirely on manually imported watchlist entries.
+**Impact**: Sanctions wallet screening covers OFAC digital-currency addresses
+and manually imported rows, but does not yet perform name/KYC sanctions
+screening.
 
 ---
 
-## 8. No Report Scheduling or Automated Screening
+## 9. No Report Scheduling or Automated Screening
 
 V1 does not support:
 
@@ -105,15 +130,24 @@ All operations are synchronous API calls.
 
 ---
 
-## 9. No Token Transfer (ERC-20) Graph Tracing
+## 10. Partial Token Transfer (ERC-20) Graph Tracing
 
-V1 traces ETH (native) transfers via Etherscan's `txlist` API. ERC-20 token transfers (USDT, USDC) are not traced at the graph level.
+Pre-transaction screening can build ERC-20 context graphs through Etherscan's
+`tokentx` API when the asset resolves to a token contract. Built-in Ethereum
+mainnet metadata is available for USDT, USDC, DAI, WETH, and WBTC; custom
+ERC-20 assets require `asset_type="erc20"` and `token_address`.
 
-**Impact**: The `asset` field in screening is used for threshold analysis only. The transaction graph is built from ETH transfers, not token transfers.
+**Impact**: ERC-20 screening has token transfer context for the screened
+contract, but deep investigation endpoints still default to native ETH graph
+expansion unless a future endpoint explicitly accepts token context.
+
+**Mitigation**: Use the screening API for token transfer decisions. Add a
+token-aware investigation API before claiming full ERC-20 investigation
+coverage.
 
 ---
 
-## 10. No Compliance Report Templates for Jurisdictions
+## 11. No Compliance Report Templates for Jurisdictions
 
 V1 generates a single English report format. There are no jurisdiction-specific templates (e.g., SAR/STR formats for US, EU, or APAC regulators).
 
@@ -124,15 +158,16 @@ V1 generates a single English report format. There are no jurisdiction-specific 
 | Capability | V1 Status |
 |---|---|
 | Real PEP commercial library | Not supported |
-| Circle/Tether official blacklist sync | Not supported |
+| Circle/Tether official blacklist sync | Ethereum RPC supported |
 | Multi-chain (Tron, BSC, Polygon) | Not supported |
+| Complete fund provenance in screening | Not supported |
 | Real ML training / GPU inference | Not supported |
 | Enterprise permissions / approval flows | Not supported |
 | Persistent audit backend | Schema ready, not wired |
 | Real-time provider streaming | Not supported |
-| OFAC/SDN official feed sync | Not supported |
+| OFAC/SDN official feed sync | OFAC address sync supported |
 | Scheduled batch screening | Not supported |
-| ERC-20 token transfer tracing | Not supported |
+| ERC-20 token transfer tracing | Screening supported; investigations not token-aware |
 | Jurisdiction-specific report templates | Not supported |
 
 ---

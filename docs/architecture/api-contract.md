@@ -10,8 +10,10 @@ and intended for a single Cregis risk operator host.
 
 ### 1.1 Identifiers and assets
 
-- `chain_id` is a numeric string. Day-1 only `"1"` (Ethereum mainnet) is supported.
-- `asset` is one of `"ETH"`, `"USDT"`, `"USDC"`.
+- `chain_id` is a numeric string. Ethereum mainnet (`"1"`) has built-in token metadata; other EVM chains require `token_address` for ERC-20 screening.
+- `asset` is an uppercase asset symbol string, not a closed enum. Built-in Ethereum mainnet assets: `"ETH"`, `"USDT"`, `"USDC"`, `"DAI"`, `"WETH"`, `"WBTC"`. Other ERC-20 assets require `token_address`.
+- `asset_type` is optional and can be `"native"` or `"erc20"`.
+- `token_address` is optional for built-in Ethereum mainnet tokens and required for custom ERC-20 assets.
 - `direction` is one of `"inbound"`, `"outbound"`.
 - `address` is a 0x-prefixed 42-character hex string (case-insensitive on input;
   normalized lowercase on output).
@@ -88,6 +90,8 @@ Request: `ScreeningTransactionCreate`
 {
   "chain_id": "1",
   "asset": "USDC",
+  "asset_type": "erc20",
+  "token_address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
   "direction": "outbound",
   "from_address": "0x...",
   "to_address": "0x...",
@@ -99,12 +103,36 @@ Request: `ScreeningTransactionCreate`
 }
 ```
 
+For an already-on-chain transaction, the request may provide only `tx_hash` and
+optional operator metadata. The backend resolves `from_address`, `to_address`,
+`amount`, `asset`, `asset_type`, and `token_address` from Etherscan before
+running screening:
+
+```json
+{
+  "chain_id": "1",
+  "tx_hash": "0x..."
+}
+```
+
+ERC-20 transactions are decoded from receipt `Transfer` logs and token metadata
+is read through Etherscan proxy `eth_call` where available.
+
 Response: `ScreeningResponse`, fields per `services/api/app/domain/models.py`.
 **Acceptance rules:**
 
 - `risk_score` is the final score (0–100).
 - `disposition` MUST equal `hold_for_manual_review` whenever any `source_hits`
   entry has `direct_hit=true` and `category` ∈ direct-hit list above.
+- Screening context graph is lightweight: from-address and to-address are each
+  expanded to at most 2 hops and 6 recent transactions per address.
+- Screening may emit `one_hop_risky_exposure`, `two_hop_risky_exposure`, and
+  `short_time_repeated_transfers` pattern signals when the bounded context graph
+  supports those conclusions.
+- `source_hits` in a screening response represent transaction-party or provider
+  hits. Direct-hit rows discovered only in 1-hop or 2-hop context are surfaced as
+  exposure `pattern_signals` so they do not masquerade as a direct hit on the
+  proposed transaction parties.
 - `pattern_signals`, `source_hits`, `evidence_summary`, `recommended_actions`
   are always populated arrays (may be empty, never null).
 - `data_freshness` is required.
@@ -134,8 +162,11 @@ Upserts a single entry. Request: `WatchlistEntry`.
 {
   "address": "0x...",
   "label": "OFAC SDN Tornado.Cash demo",
+  "source": "ofac_sdn",
+  "source_version": "2026-05-23",
   "category": "ofac",
   "severity": "critical",
+  "evidence": "OFAC SDN address match.",
   "notes": "optional"
 }
 ```
@@ -156,11 +187,13 @@ Bulk import. Request:
   "payload": "raw string (CSV text or JSON array text)",
   "default_category": "manual",
   "default_severity": "high",
+  "default_source": "manual_import",
+  "default_source_version": "",
   "replace": false
 }
 ```
 
-CSV schema (header REQUIRED): `address,label,category,severity,notes`.
+CSV schema (header REQUIRED): `address,label,source,source_version,category,severity,evidence,notes`.
 JSON schema: array of `WatchlistEntry` objects (extra fields ignored).
 
 Response:
@@ -197,9 +230,9 @@ true:
    - `circle_blacklist`
    - `tether_blacklist`
    - `stablecoin_blacklist`
-3. `address` matches `from_address` for inbound screening, or `to_address` for
-   outbound screening, or any non-root graph node within `depth=1` of the root
-   investigation target.
+3. `address` matches a screening party or a high-risk node inside the bounded
+   screening context graph. Screening exposure evidence is limited to at most
+   two hops and must cite a `source_hit` or `pattern_signal`.
 
 When triggered:
 

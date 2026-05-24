@@ -1,12 +1,11 @@
 ---
 name: cregis-pre-merge-review
-description: Project-director pre-merge review checklist for the Cregis ETH AML Tracing repo. Use when reviewing a PR, a subagent's diff, or your own diff before claiming "done". Returns a structured approved / approved-with-changes / blocked verdict with exact file:line citations.
+description: Project-director pre-merge review checklist for the Cregis ETH AML Tracing repo. Use when reviewing a PR, an agent's diff, or your own diff before claiming "done". Returns a structured approved / approved-with-changes / blocked verdict with exact file:line citations.
 license: MIT
 applies_to:
   - services/api/**
   - apps/web/**
   - docs/**
-  - .opencode/agents/**
 ---
 
 # Cregis Pre-Merge Review
@@ -18,9 +17,9 @@ or `blocked` — with exact file:line citations.
 
 ## When to use
 
-- Before opening a PR for any change touching `services/`, `apps/web/`,
-  `docs/`, or `.opencode/agents/`.
-- Before a subagent claims "done".
+- Before opening a PR for any change touching `services/`, `apps/web/`, or
+  `docs/`.
+- Before an agent claims "done".
 - As the `risk-logic-reviewer` audit step for any scoring / pattern /
   direct-hit / report-content change.
 
@@ -94,7 +93,7 @@ For each changed path, look up its owner in `docs/team-assignments.md`:
   have `aml-architect` approval line in the PR body.
 - File touches scoring, patterns, direct-hit, or report content → must have
   `risk-logic-reviewer` verdict in the PR body.
-- File is outside the diffing subagent's owned paths → **blocked** unless
+- File is outside the diffing agent's owned paths → **blocked** unless
   routed through `aml-architect`.
 
 ### Step 4 — Reproducibility sweep

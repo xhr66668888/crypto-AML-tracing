@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
@@ -37,6 +38,9 @@ class GoPlusClient:
     demo_mode: bool = True
     timeout_seconds: float = 10.0
     max_retries: int = 2
+    _cache: dict[str, tuple[float, dict[str, Any]]] = field(default_factory=dict, repr=False)
+    _last_request_at: float = field(default=0.0, repr=False)
+    _rate_limited_until: float = field(default=0.0, repr=False)
 
     # ------------------------------------------------------------------
     # Public API
@@ -44,25 +48,66 @@ class GoPlusClient:
 
     async def get_address_security(self, address: str, chain_id: str = "1") -> dict[str, Any]:
         """Fetch security assessment for an address."""
-        if self.demo_mode or not self.token:
+        if self.demo_mode:
             return self._demo_security(address)
 
         params = {"chain_id": chain_id}
-        headers = {"Authorization": f"Bearer {self.token}"}
+        headers = self._auth_headers()
         url = f"https://api.gopluslabs.io/api/v1/address_security/{address}"
+        cache_key = f"address:{chain_id}:{address.lower()}"
+        cached = self._cached(cache_key)
+        if cached is not None:
+            return cached
         payload = await self._get(url, params=params, headers=headers)
-        return payload.get("result") or payload
+        result = payload.get("result") or payload
+        self._cache_result(cache_key, result)
+        return result
 
     async def get_token_security(self, token_address: str, chain_id: str = "1") -> dict[str, Any]:
         """Fetch security assessment for a token contract."""
-        if self.demo_mode or not self.token:
+        if self.demo_mode:
             return self._demo_token_security(token_address)
 
         params = {"chain_id": chain_id}
-        headers = {"Authorization": f"Bearer {self.token}"}
+        headers = self._auth_headers()
         url = f"https://api.gopluslabs.io/api/v1/token_security/{token_address}"
+        cache_key = f"token:{chain_id}:{token_address.lower()}"
+        cached = self._cached(cache_key)
+        if cached is not None:
+            return cached
         payload = await self._get(url, params=params, headers=headers)
-        return payload.get("result") or payload
+        result = payload.get("result") or payload
+        self._cache_result(cache_key, result)
+        return result
+
+    def _auth_headers(self) -> dict[str, str] | None:
+        token = self.token.strip()
+        if not token:
+            return None
+        if token.lower().startswith("bearer "):
+            token = token[7:].strip()
+        if not token.startswith("eyJ"):
+            return None
+        return {"Authorization": f"Bearer {token}"}
+
+    def _cached(self, key: str) -> dict[str, Any] | None:
+        item = self._cache.get(key)
+        if not item:
+            return None
+        expires_at, value = item
+        if time.monotonic() > expires_at:
+            del self._cache[key]
+            return None
+        return value
+
+    def _cache_result(self, key: str, value: dict[str, Any]) -> None:
+        self._cache[key] = (time.monotonic() + 60.0, value)
+
+    async def _throttle(self) -> None:
+        elapsed = time.monotonic() - self._last_request_at
+        if elapsed < 0.4:
+            await asyncio.sleep(0.4 - elapsed)
+        self._last_request_at = time.monotonic()
 
     # ------------------------------------------------------------------
     # HTTP with retries
@@ -77,8 +122,17 @@ class GoPlusClient:
         """GET with bounded retry on 429/5xx/timeouts."""
         rid = new_request_id()
         last_exc: ConnectorError | None = None
+        if time.monotonic() < self._rate_limited_until:
+            raise ConnectorError(
+                provider=PROVIDER,
+                status_code=200,
+                message="GoPlus API error (code=4029): too many requests",
+                request_id=rid,
+                retryable=True,
+            )
         for attempt in range(1, self.max_retries + 1):
             try:
+                await self._throttle()
                 async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
                     response = await client.get(url, params=params, headers=headers)
 
@@ -111,14 +165,22 @@ class GoPlusClient:
                 # GoPlus uses code=1 for success
                 code = payload.get("code", 0)
                 if code != 1:
-                    raise ConnectorError(
+                    retryable = code == 4029 or "too many" in str(payload.get("message", "")).lower()
+                    err = ConnectorError(
                         provider=PROVIDER,
                         status_code=200,
                         message=f"GoPlus API error (code={code}): {payload.get('message', 'Unknown')}",
                         request_id=rid,
-                        retryable=False,
+                        retryable=retryable,
                         raw=payload,
                     )
+                    if retryable and attempt < self.max_retries:
+                        last_exc = err
+                        await asyncio.sleep(1.0 * attempt)
+                        continue
+                    if retryable:
+                        self._rate_limited_until = time.monotonic() + 60.0
+                    raise err
                 return payload
 
             except httpx.TimeoutException:
@@ -137,8 +199,11 @@ class GoPlusClient:
                     request_id=rid,
                     retryable=True,
                 )
-            except ConnectorError:
-                raise  # already structured
+            except ConnectorError as exc:
+                if exc.retryable and attempt < self.max_retries:
+                    last_exc = exc
+                else:
+                    raise
 
             if attempt < self.max_retries:
                 await asyncio.sleep(0.5 * (2 ** (attempt - 1)))

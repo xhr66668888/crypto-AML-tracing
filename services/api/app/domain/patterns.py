@@ -16,6 +16,7 @@ class PatternAnalyzer:
 
     ETH_THRESHOLDS = (1.0, 5.0, 10.0, 50.0)
     TOKEN_THRESHOLDS = (1000.0, 5000.0, 10000.0, 50000.0)
+    BTC_THRESHOLDS = (0.05, 0.25, 0.5, 2.0)
 
     # ------------------------------------------------------------------
     # Public API
@@ -48,12 +49,14 @@ class PatternAnalyzer:
         to_address: str,
         amount: float,
         asset: str,
-        direction: str,
         graph: InvestigationGraph,
+        direction: str = "",
+        asset_type: str = "",
     ) -> list[PatternSignal]:
         """Single-transaction screening signals."""
         signals: list[PatternSignal] = []
-        thresholds = self.TOKEN_THRESHOLDS if asset.upper() in {"USDT", "USDC"} else self.ETH_THRESHOLDS
+        thresholds = self._thresholds_for_asset(asset, asset_type)
+        counterparty_address = from_address if direction == "inbound" else to_address
         near = next((threshold for threshold in thresholds if threshold * 0.9 <= amount < threshold), None)
         if near:
             signals.append(
@@ -61,7 +64,7 @@ class PatternAnalyzer:
                     name="threshold_structuring",
                     severity=RiskLevel.medium,
                     score=42,
-                    subject=to_address,
+                    subject=counterparty_address,
                     evidence=f"{asset.upper()} amount {amount:.6g} is just below the {near:.6g} review threshold.",
                     confidence=0.78,
                     metadata={"amount": amount, "threshold": near, "asset": asset.upper()},
@@ -80,7 +83,7 @@ class PatternAnalyzer:
                     name="dusting_counterparty",
                     severity=RiskLevel.high,
                     score=68,
-                    subject=to_address,
+                    subject=counterparty_address,
                     evidence="Withdrawal counterparty has recent tiny-value transaction activity consistent with dusting probes.",
                     confidence=0.72,
                     metadata={"dust_edge_count": len(dust_touch)},
@@ -88,20 +91,30 @@ class PatternAnalyzer:
             )
 
         degree = self._degree(graph.edges)
-        if amount >= thresholds[min(2, len(thresholds) - 1)] and degree.get(to_address, 0) <= 1:
+        if amount >= thresholds[min(2, len(thresholds) - 1)] and degree.get(counterparty_address, 0) <= 1:
             signals.append(
                 PatternSignal(
                     name="large_transfer_to_sparse_address",
                     severity=RiskLevel.medium,
                     score=48,
-                    subject=to_address,
+                    subject=counterparty_address,
                     evidence="Large transfer is directed to an address with little observed graph activity.",
                     confidence=0.7,
-                    metadata={"amount": amount, "asset": asset.upper(), "observed_degree": degree.get(to_address, 0)},
+                    metadata={"amount": amount, "asset": asset.upper(), "observed_degree": degree.get(counterparty_address, 0)},
                 )
             )
 
         return sorted(signals, key=lambda item: item.score, reverse=True)
+
+    @classmethod
+    def _thresholds_for_asset(cls, asset: str, asset_type: str = "") -> tuple[float, ...]:
+        symbol = asset.upper().strip()
+        kind = asset_type.lower().strip()
+        if kind == "native" or symbol in {"ETH", "WETH"}:
+            return cls.ETH_THRESHOLDS
+        if symbol == "WBTC":
+            return cls.BTC_THRESHOLDS
+        return cls.TOKEN_THRESHOLDS
 
     # ------------------------------------------------------------------
     # Network Metrics  (exposed for RaindropAmlScorer feature builder)
@@ -241,9 +254,9 @@ class PatternAnalyzer:
                         severity=RiskLevel.high if score >= 65 else RiskLevel.medium,
                         score=round(score, 2),
                         subject=target,
-                        evidence=f"{len(sources)} source addresses aggregate {totals[target]:.4g} ETH into one address.",
+                        evidence=f"{len(sources)} source addresses aggregate {totals[target]:.4g} {_dominant_asset(source_edges=edges, address=target)} into one address.",
                         confidence=0.76,
-                        metadata={"source_count": len(sources), "total_value_eth": round(totals[target], 8)},
+                        metadata={"source_count": len(sources), "total_value": round(totals[target], 8)},
                     )
                 )
         return signals
@@ -271,6 +284,7 @@ class PatternAnalyzer:
             values = [edge.value_eth for edge in ordered if edge.value_eth > 0]
             if len(values) < 4:
                 continue
+            symbol = _edge_asset_symbol(ordered[0])
 
             # Count strictly or weakly descending consecutive pairs
             descending_pairs = sum(1 for left, right in zip(values, values[1:]) if right <= left)
@@ -293,7 +307,7 @@ class PatternAnalyzer:
                         subject=source,
                         evidence=(
                             f"Sequential outgoing transfers decrease across {unique_targets} counterparties; "
-                            f"first value {values[0]:.4g} ETH, last {values[-1]:.4g} ETH."
+                            f"first value {values[0]:.4g} {symbol}, last {values[-1]:.4g} {symbol}."
                         ),
                         confidence=0.72 if strong else 0.65,
                         metadata={
@@ -314,16 +328,19 @@ class PatternAnalyzer:
     def _threshold_structuring(self, edges: list[GraphEdge]) -> list[PatternSignal]:
         """Detect multiple transactions just below reporting thresholds.
 
-        Looks for repeated transfers at 90-100% of configured ETH thresholds.
+        Looks for repeated transfers at 90-100% of configured asset thresholds.
         """
         near_threshold: list[GraphEdge] = []
         threshold_hit: dict[str, float] = {}  # edge_id -> threshold
+        symbol_hit: dict[str, str] = {}
 
         for edge in edges:
-            for threshold in self.ETH_THRESHOLDS:
+            symbol = _edge_asset_symbol(edge)
+            for threshold in self._thresholds_for_asset(symbol, str(edge.metadata.get("asset_type") or "")):
                 if threshold * 0.9 <= edge.value_eth < threshold:
                     near_threshold.append(edge)
                     threshold_hit[edge.id] = threshold
+                    symbol_hit[edge.id] = symbol
                     break
 
         if len(near_threshold) < 3:
@@ -342,6 +359,8 @@ class PatternAnalyzer:
             if edge.id in threshold_hit:
                 threshold_counts[threshold_hit[edge.id]] += 1
         most_common_threshold = threshold_counts.most_common(1)[0][0]
+        symbol_counts: Counter[str] = Counter(symbol_hit.values())
+        symbol = symbol_counts.most_common(1)[0][0] if symbol_counts else "ETH"
 
         score = min(72.0, 36 + len(near_threshold) * 7)
         return [
@@ -350,7 +369,7 @@ class PatternAnalyzer:
                 severity=RiskLevel.high if score >= 65 else RiskLevel.medium,
                 score=round(score, 2),
                 subject=subject,
-                evidence=f"{len(near_threshold)} transfers sit just below the {most_common_threshold:.4g} ETH review threshold.",
+                evidence=f"{len(near_threshold)} transfers sit just below the {most_common_threshold:.4g} {symbol} review threshold.",
                 confidence=0.76,
                 metadata={
                     "transfer_count": len(near_threshold),
@@ -371,7 +390,7 @@ class PatternAnalyzer:
         Triggered when >= 5 transfers with value <= 0.02 ETH occur within
         a 24-hour window.
         """
-        tiny = [edge for edge in edges if 0 < edge.value_eth <= 0.02 and edge.timestamp > 0]
+        tiny = [edge for edge in edges if _is_eth_like_edge(edge) and 0 < edge.value_eth <= 0.02 and edge.timestamp > 0]
         if len(tiny) < 5:
             return []
 
@@ -518,7 +537,7 @@ class PatternAnalyzer:
                 subject=address,
                 evidence=(
                     f"Address has degree {max_degree} (betweenness centrality {hub_bc:.3f}), "
-                    f"acting as a central routing node in the transaction graph."
+                    f"acting as a central routing node in the observed graph."
                 ),
                 confidence=0.72,
                 metadata={
@@ -604,7 +623,9 @@ class PatternAnalyzer:
         return [
             edge
             for edge in edges
-            if 0 < edge.value_eth <= 0.0001 and (edge.timestamp == 0 or edge.timestamp >= recent_floor)
+            if _is_eth_like_edge(edge)
+            and 0 < edge.value_eth <= 0.0001
+            and (edge.timestamp == 0 or edge.timestamp >= recent_floor)
         ]
 
     # ------------------------------------------------------------------
@@ -784,3 +805,22 @@ class PatternAnalyzer:
             cc[node.address] = (2.0 * triangles) / (k * (k - 1))
 
         return cc
+
+
+def _edge_asset_symbol(edge: GraphEdge) -> str:
+    return str(edge.metadata.get("asset_symbol") or "ETH").upper()
+
+
+def _is_eth_like_edge(edge: GraphEdge) -> bool:
+    return _edge_asset_symbol(edge) in {"ETH", "WETH"}
+
+
+def _dominant_asset(source_edges: list[GraphEdge], address: str) -> str:
+    symbols = [
+        _edge_asset_symbol(edge)
+        for edge in source_edges
+        if edge.target == address or edge.source == address
+    ]
+    if not symbols:
+        return "ETH"
+    return Counter(symbols).most_common(1)[0][0]

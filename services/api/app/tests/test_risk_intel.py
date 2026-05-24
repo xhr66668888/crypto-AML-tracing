@@ -16,20 +16,29 @@ from time import time
 
 import pytest
 
+from app.connectors.base import ConnectorError
 from app.connectors.goplus import GoPlusClient
 from app.domain.models import (
     DIRECT_HIT_CATEGORIES,
     GraphEdge,
     GraphNode,
     InvestigationGraph,
+    PatternSignal,
     RiskDisposition,
     RiskLevel,
     RiskSourceHit,
     WatchlistEntry,
 )
 from app.domain.patterns import PatternAnalyzer
-from app.domain.risk_intel import RiskIntelAggregator, SEVERITY_WEIGHTS, _source_for_category
-from app.domain.scoring import RiskScoringEngine, decide_disposition, recommended_actions, risk_level
+from app.domain.risk_intel import (
+    RiskIntelAggregator,
+    SEVERITY_WEIGHTS,
+    _goplus_behaviors,
+    _goplus_doubt_list,
+    _source_for_category,
+)
+from app.domain.providers import GoPlusRiskProvider, RiskProviderResult
+from app.domain.scoring import RiskDecisionPolicy, RiskScoringEngine, decide_disposition, recommended_actions, risk_level
 from app.ml.raindrop_scorer import RaindropAmlScorer
 from app.storage.memory import InMemoryStore
 
@@ -146,6 +155,29 @@ class TestSourceHitGeneration:
         assert ofac_hit.source_updated_at is not None
 
     @pytest.mark.asyncio
+    async def test_watchlist_source_and_evidence_fields_feed_source_hit(self):
+        goplus = GoPlusClient(demo_mode=True)
+        intel = RiskIntelAggregator(goplus)
+        entry = WatchlistEntry(
+            address=PEP_ADDR,
+            label="OpenSanctions PEP",
+            source="opensanctions",
+            source_version="2026-05-23",
+            category="pep",
+            severity=RiskLevel.high,
+            evidence="OpenSanctions PEP dataset match.",
+            notes="Analyst note kept for context.",
+        )
+
+        _, findings, hits = await intel.enrich_address_detail(PEP_ADDR, "1", {PEP_ADDR: entry})
+
+        hit = next(h for h in hits if h.address == PEP_ADDR)
+        assert hit.source == "opensanctions"
+        assert hit.evidence == "OpenSanctions PEP dataset match."
+        assert hit.raw_payload["source_version"] == "2026-05-23"
+        assert findings[0] == ("pep", RiskLevel.high, "OpenSanctions PEP dataset match.")
+
+    @pytest.mark.asyncio
     async def test_all_direct_hit_categories_produce_direct_hit_true(self):
         goplus = GoPlusClient(demo_mode=True)
         intel = RiskIntelAggregator(goplus)
@@ -213,6 +245,72 @@ class TestSourceHitGeneration:
             if hit.source == "goplus":
                 assert "demo" in hit.raw_payload.get("source", "")
 
+    @pytest.mark.asyncio
+    async def test_retryable_goplus_error_degrades_without_source_hit(self):
+        class RateLimitedGoPlus:
+            async def get_address_security(self, address: str, chain_id: str = "1"):
+                raise ConnectorError(
+                    provider="goplus",
+                    status_code=200,
+                    message="GoPlus API error (code=4029): too many requests",
+                    retryable=True,
+                )
+
+        intel = RiskIntelAggregator(RateLimitedGoPlus())  # type: ignore[arg-type]
+        tags, findings, hits = await intel.enrich_address_detail(CLEAN_ADDR, "1", {})
+
+        assert tags == ["goplus_unavailable"]
+        assert hits == []
+        assert findings == [
+            (
+                "provider_unavailable",
+                RiskLevel.low,
+                f"GoPlus risk check unavailable for {CLEAN_ADDR}: GoPlus API error (code=4029): too many requests",
+            )
+        ]
+
+    @pytest.mark.asyncio
+    async def test_provider_result_is_normalized_into_source_hits(self):
+        class FakeAmlProvider:
+            name = "chainalysis"
+            risk_domain = "aml"
+
+            async def check_address(self, address: str, chain_id: str, seen_at):
+                evidence = "Chainalysis sanctions exposure match."
+                return RiskProviderResult(
+                    tags=["sanctions_exposure"],
+                    findings=[(self.name, RiskLevel.high, evidence)],
+                    source_hits=[
+                        RiskSourceHit(
+                            source=self.name,
+                            category="sanctions_exposure",
+                            severity=RiskLevel.high,
+                            address=address,
+                            label="Sanctions Exposure",
+                            evidence=evidence,
+                            confidence=0.88,
+                            source_updated_at=seen_at,
+                            raw_payload={"chain_id": chain_id},
+                        )
+                    ],
+                )
+
+        intel = RiskIntelAggregator(GoPlusClient(demo_mode=True), providers=[FakeAmlProvider()])
+
+        tags, findings, hits = await intel.enrich_address_detail(CLEAN_ADDR, "1", {})
+
+        hit = next(h for h in hits if h.source == "chainalysis")
+        assert tags == ["sanctions_exposure"]
+        assert findings == [("chainalysis", RiskLevel.high, "Chainalysis sanctions exposure match.")]
+        assert hit.evidence == "Chainalysis sanctions exposure match."
+        assert hit.raw_payload == {"chain_id": "1"}
+
+    def test_goplus_provider_is_web3_security_not_full_aml(self):
+        provider = GoPlusRiskProvider(GoPlusClient(demo_mode=True))
+
+        assert provider.name == "goplus"
+        assert provider.risk_domain == "web3_security"
+
 
 # ---------------------------------------------------------------------------
 # Source Category Mapping Tests
@@ -244,6 +342,80 @@ class TestSourceCategoryMapping:
 
     def test_unknown_category_maps_to_local_watchlist(self):
         assert _source_for_category("manual") == "local_watchlist"
+
+
+class TestWatchlistRowIngestion:
+    def test_ingest_row_stores_public_dataset_fields(self):
+        from app.main import _ingest_watchlist_row
+
+        entry = _ingest_watchlist_row(
+            {
+                "address": OFAC_ADDR,
+                "label": "OFAC SDN",
+                "source": "ofac_sdn",
+                "source_version": "2026-05-23",
+                "category": "ofac",
+                "severity": "critical",
+                "evidence": "OFAC SDN address match.",
+                "notes": "Imported by analyst.",
+            },
+            "manual",
+            RiskLevel.high,
+        )
+
+        assert entry.source == "ofac_sdn"
+        assert entry.source_version == "2026-05-23"
+        assert entry.category == "ofac"
+        assert entry.evidence == "OFAC SDN address match."
+        assert entry.notes == "Imported by analyst."
+
+    def test_ingest_legacy_notes_as_evidence(self):
+        from app.main import _ingest_watchlist_row
+
+        entry = _ingest_watchlist_row(
+            {
+                "address": OFAC_ADDR,
+                "label": "OFAC SDN",
+                "category": "ofac",
+                "severity": "critical",
+                "notes": "Legacy notes evidence.",
+            },
+            "manual",
+            RiskLevel.high,
+        )
+
+        assert entry.source == "ofac"
+        assert entry.evidence == "Legacy notes evidence."
+
+    def test_ingest_default_source_for_manual_sync(self):
+        from app.main import _ingest_watchlist_row
+
+        entry = _ingest_watchlist_row(
+            {
+                "address": PEP_ADDR,
+                "label": "OpenSanctions PEP",
+                "category": "pep",
+                "severity": "high",
+                "evidence": "Aggregator row.",
+            },
+            "manual",
+            RiskLevel.high,
+            default_source="opensanctions",
+            default_source_version="2026-05-23",
+        )
+
+        assert entry.source == "opensanctions"
+        assert entry.source_version == "2026-05-23"
+        assert entry.evidence == "Aggregator row."
+
+
+class TestGoPlusRealPayloadParsing:
+    def test_extracts_real_boolean_risk_fields(self):
+        payload = {"mixer": "1", "money_laundering": "0", "sanctioned": "1"}
+        assert _goplus_behaviors(payload) == ["mixer", "sanctioned"]
+
+    def test_blacklist_doubt_counts_as_doubt_list(self):
+        assert _goplus_doubt_list({"blacklist_doubt": "1"}) is True
 
 
 # ---------------------------------------------------------------------------
@@ -355,6 +527,30 @@ class TestDispositionLogic:
         hits = [RiskSourceHit(source="goplus", category="doubt_list", severity=RiskLevel.medium,
                               address=CLEAN_ADDR, label="doubt", evidence="test", direct_hit=False)]
         assert decide_disposition(10, hits, []) == RiskDisposition.allow
+
+    def test_provider_unavailable_signal_gets_review_even_with_low_score(self):
+        signal = PatternSignal(
+            name="provider_unavailable",
+            severity=RiskLevel.medium,
+            score=0,
+            subject=CLEAN_ADDR,
+            evidence="GoPlus risk check unavailable.",
+        )
+        assert decide_disposition(0, [], [signal]) == RiskDisposition.review
+
+    def test_policy_thresholds_are_configurable_without_changing_score(self):
+        policy = RiskDecisionPolicy(hold_score=90, review_score=50)
+
+        assert policy.decide(45, [], []) == RiskDisposition.allow
+        assert policy.decide(50, [], []) == RiskDisposition.review
+        assert policy.decide(90, [], []) == RiskDisposition.hold_for_manual_review
+
+    def test_direct_hit_policy_overrides_custom_thresholds(self):
+        policy = RiskDecisionPolicy(hold_score=100, review_score=100)
+        hits = [RiskSourceHit(source="ofac", category="ofac", severity=RiskLevel.critical,
+                              address=OFAC_ADDR, label="OFAC", evidence="test", direct_hit=True)]
+
+        assert policy.decide(0, hits, []) == RiskDisposition.hold_for_manual_review
 
 
 # ---------------------------------------------------------------------------
@@ -481,6 +677,28 @@ class TestWatchlistStorage:
         mapping = store.get_watchlist_map()
         assert OFAC_ADDR in mapping
         assert mapping[OFAC_ADDR].label == "a"
+
+    def test_watchlist_persists_to_json_file(self, tmp_path):
+        path = tmp_path / "watchlist.json"
+        store = InMemoryStore(watchlist_path=str(path))
+        store.upsert_watchlist_entry(
+            WatchlistEntry(
+                address=OFAC_ADDR,
+                label="OFAC SDN",
+                source="ofac_sdn",
+                source_version="2026-05-21",
+                category="ofac",
+                severity=RiskLevel.critical,
+                evidence="OFAC address evidence.",
+            )
+        )
+
+        reloaded = InMemoryStore(watchlist_path=str(path))
+        entry = reloaded.get_watchlist_entry(OFAC_ADDR)
+
+        assert entry.source == "ofac_sdn"
+        assert entry.source_version == "2026-05-21"
+        assert entry.evidence == "OFAC address evidence."
 
 
 # ---------------------------------------------------------------------------
@@ -789,6 +1007,18 @@ class TestRecommendedActions:
     def test_allow_action(self):
         actions = recommended_actions(RiskDisposition.allow, [], [])
         assert any("allow" in a.lower() for a in actions)
+
+    def test_degraded_provider_action(self):
+        signal = PatternSignal(
+            name="stablecoin_blacklist_unavailable",
+            severity=RiskLevel.medium,
+            score=35,
+            subject=CLEAN_ADDR,
+            evidence="USDC stablecoin blacklist check unavailable.",
+        )
+        actions = recommended_actions(RiskDisposition.review, [], [signal])
+
+        assert "Review with degraded provider evidence; retry unavailable checks before final approval." in actions
 
 
 # ---------------------------------------------------------------------------

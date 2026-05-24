@@ -6,6 +6,87 @@
 
 ---
 
+## Task 4 Amendment — 2026-05-24
+
+`ScreeningTransactionCreate.asset` is now an uppercase symbol string rather than
+an `ETH | USDT | USDC` enum. The backend accepts built-in Ethereum mainnet
+assets `ETH`, `USDT`, `USDC`, `DAI`, `WETH`, and `WBTC`, and supports custom
+ERC-20 assets when the request includes `asset_type="erc20"` and
+`token_address`.
+
+ERC-20 screening now uses Etherscan `tokentx` graph context when a token
+contract is known, preserves token metadata on graph edges, checks GoPlus token
+contract risk, and still performs Circle/Tether issuer blacklist checks for
+USDC/USDT by symbol or token address.
+
+---
+
+## Task 5 Amendment — 2026-05-24
+
+Pre-transaction screening now builds a lightweight two-sided context graph.
+The backend expands both `from_address` and `to_address` to at most 2 hops and
+6 recent transactions per address. For ERC-20 screening, the same limits apply
+to token-transfer graph context.
+
+The screening response can now include context-derived pattern signals:
+
+- `one_hop_risky_exposure`
+- `two_hop_risky_exposure`
+- `short_time_repeated_transfers`
+
+These are evidence signals only; they support pre-transaction decisions but do
+not claim complete fund provenance.
+
+Context source-hit handling was tightened after implementation review:
+
+- `source_hits` in `ScreeningResponse` now represent transaction-party hits or
+  provider checks directly attached to the screened asset/address.
+- OFAC/sanctions/stablecoin hits found only in bounded 1-hop or 2-hop context
+  are converted into exposure `pattern_signals`.
+- Direct hits on `from_address` or `to_address` still force
+  `hold_for_manual_review`; context-only exposure normally drives `review`.
+
+---
+
+## Task 6 Amendment — 2026-05-24
+
+Decision policy is now separated from numeric score generation in
+`RiskDecisionPolicy`.
+
+- `score` remains the numeric risk intensity.
+- `disposition` is derived by policy thresholds and direct-hit rules.
+- Direct-hit categories still force `hold_for_manual_review` even when the
+  numeric score is low.
+- Provider-degraded signals such as `provider_unavailable`,
+  `stablecoin_blacklist_unavailable`, and `token_contract_risk_unavailable`
+  produce `review` and a retry-oriented recommended action instead of being
+  treated as clean.
+
+The legacy helpers `decide_disposition()` and `recommended_actions()` remain
+available and delegate to the default policy, so API contracts and service
+callers are unchanged.
+
+---
+
+## Transaction Hash Screening Amendment — 2026-05-24
+
+`POST /api/v1/screening/transactions` now accepts tx-hash-only screening
+requests. When `tx_hash` is provided without manual transfer fields, the backend
+uses Etherscan to resolve:
+
+- `from_address`
+- `to_address`
+- `amount`
+- `asset`
+- `asset_type`
+- `token_address`
+
+Native ETH transfers are decoded from the transaction value. ERC-20 transfers
+are decoded from receipt `Transfer` logs; token symbol/name/decimals are read
+through Etherscan proxy `eth_call` where available.
+
+---
+
 ## Hard Invariants
 
 1. Every risk conclusion must point to a `source_hit`, `pattern_signal`, or `evidence` row. No invented facts.
@@ -41,6 +122,8 @@ Pre-withdrawal transfer screening. Returns risk score, disposition, findings, pa
 {
   "chain_id": "1",
   "asset": "USDC",
+  "asset_type": "erc20",
+  "token_address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
   "direction": "outbound",
   "from_address": "0x8a5847fd0e592b058c026c5fdc322aee834b87f5",
   "to_address": "0x1111111111111111111111111111111111111111",
@@ -55,15 +138,26 @@ Pre-withdrawal transfer screening. Returns risk score, disposition, findings, pa
 | Field | Type | Required | Default | Notes |
 |-------|------|----------|---------|-------|
 | `chain_id` | string | No | `"1"` | Ethereum chain ID |
-| `asset` | enum | No | `"ETH"` | One of: `ETH`, `USDT`, `USDC` |
+| `asset` | string | No | `"ETH"` | Built-ins: `ETH`, `USDT`, `USDC`, `DAI`, `WETH`, `WBTC`; custom ERC-20 requires `token_address` |
+| `asset_type` | string | No | `null` | Optional: `native` or `erc20` |
+| `token_address` | string | No | `null` | Required for custom ERC-20 assets; optional for built-in Ethereum mainnet tokens |
 | `direction` | enum | No | `"outbound"` | One of: `inbound`, `outbound` |
-| `from_address` | string | Yes | — | 42-char hex Ethereum address |
-| `to_address` | string | Yes | — | 42-char hex Ethereum address |
-| `amount` | float | Yes | — | Must be >= 0 |
+| `from_address` | string | Conditional | — | Required unless `tx_hash` is provided |
+| `to_address` | string | Conditional | — | Required unless `tx_hash` is provided |
+| `amount` | float | Conditional | — | Required unless `tx_hash` is provided |
 | `customer_id` | string | No | `null` | Operator-assigned customer ID |
 | `team_id` | string | No | `null` | Operator-assigned team ID |
 | `tx_hash` | string | No | `null` | 66-char hex transaction hash |
 | `timestamp` | int | No | `null` | Unix timestamp; defaults to current time |
+
+Tx-hash-only request:
+
+```json
+{
+  "chain_id": "1",
+  "tx_hash": "0x..."
+}
+```
 
 **Response** `200 OK` (`ScreeningResponse`):
 ```json
@@ -443,8 +537,11 @@ List all watchlist entries.
   {
     "address": "0x1111111111111111111111111111111111111111",
     "label": "OFAC SDN demo",
+    "source": "ofac_sdn",
+    "source_version": "2026-05-23",
     "category": "ofac",
     "severity": "critical",
+    "evidence": "OFAC SDN address match.",
     "notes": "Authoritative sanctions list demo hit."
   }
 ]
@@ -461,8 +558,11 @@ Upsert a single watchlist entry.
 {
   "address": "0x1111111111111111111111111111111111111111",
   "label": "OFAC SDN demo",
+  "source": "ofac_sdn",
+  "source_version": "2026-05-23",
   "category": "ofac",
   "severity": "critical",
+  "evidence": "OFAC SDN address match.",
   "notes": "Authoritative sanctions list demo hit."
 }
 ```
@@ -471,8 +571,11 @@ Upsert a single watchlist entry.
 |-------|------|----------|---------|-------|
 | `address` | string | Yes | — | 42-char hex Ethereum address |
 | `label` | string | Yes | — | Human-readable label |
+| `source` | string | No | `"manual_import"` | Dataset or provider source |
+| `source_version` | string | No | `""` | Publication date, snapshot, or block/query timestamp |
 | `category` | string | No | `"manual"` | Risk category |
 | `severity` | enum | No | `"high"` | One of: `low`, `medium`, `high`, `critical` |
+| `evidence` | string | No | `""` | Source-backed evidence used in risk decisions |
 | `notes` | string | No | `""` | Free-text notes |
 
 **Response** `200 OK`: Returns the upserted `WatchlistEntry`.
@@ -487,9 +590,11 @@ Bulk import watchlist entries from CSV or JSON.
 ```json
 {
   "format": "csv",
-  "payload": "address,label,category,severity,notes\n0x1111111111111111111111111111111111111111,OFAC SDN,ofac,critical,Test",
+  "payload": "address,label,source,source_version,category,severity,evidence,notes\n0x1111111111111111111111111111111111111111,OFAC SDN,ofac_sdn,2026-05-23,ofac,critical,OFAC SDN address match.,Test",
   "default_category": "manual",
   "default_severity": "high",
+  "default_source": "manual_import",
+  "default_source_version": "",
   "replace": false
 }
 ```
@@ -500,10 +605,13 @@ Bulk import watchlist entries from CSV or JSON.
 | `payload` | string | Yes | — | CSV string or JSON array string |
 | `default_category` | string | No | `"manual"` | Fallback category for rows missing it |
 | `default_severity` | enum | No | `"high"` | Fallback severity for rows missing it |
+| `default_source` | string | No | `"manual_import"` | Fallback source for rows missing it |
+| `default_source_version` | string | No | `""` | Fallback source version for rows missing it |
 | `replace` | bool | No | `false` | If `true`, clears watchlist before import |
 
-**CSV format**: `address,label,category,severity,notes` (header required).
-**JSON format**: Array of objects with keys `address`, `label`, `category`, `severity`, `notes`.
+**CSV format**: `address,label,source,source_version,category,severity,evidence,notes` (header required).
+Legacy CSV files with `address,label,category,severity,notes` still import; `notes` is used as evidence when `evidence` is blank.
+**JSON format**: Array of objects with keys `address`, `label`, `source`, `source_version`, `category`, `severity`, `evidence`, `notes`.
 
 **Response** `200 OK` (`WatchlistImportResult`):
 ```json

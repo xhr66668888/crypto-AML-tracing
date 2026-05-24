@@ -2,12 +2,19 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from app.connectors.goplus import HIGH_RISK_BEHAVIORS, GoPlusClient
+from app.connectors.goplus import GoPlusClient
 from app.domain.models import (
     DIRECT_HIT_CATEGORIES,
     RiskLevel,
     RiskSourceHit,
     WatchlistEntry,
+)
+from app.domain.providers import (
+    SOURCE_GOPLUS,
+    GoPlusRiskProvider,
+    RiskProvider,
+    _goplus_behaviors,
+    _goplus_doubt_list,
 )
 
 
@@ -19,7 +26,6 @@ SEVERITY_WEIGHTS = {
 }
 
 # Canonical source names used in SourceHit.source
-SOURCE_GOPLUS = "goplus"
 SOURCE_WATCHLIST = "local_watchlist"
 
 
@@ -38,8 +44,8 @@ class RiskIntelAggregator:
     - ``source_updated_at``: timestamp of the hit (``seen_at`` semantics)
     """
 
-    def __init__(self, goplus: GoPlusClient) -> None:
-        self.goplus = goplus
+    def __init__(self, goplus: GoPlusClient, providers: list[RiskProvider] | None = None) -> None:
+        self.providers = providers if providers is not None else [GoPlusRiskProvider(goplus)]
 
     async def enrich_address(
         self,
@@ -66,11 +72,12 @@ class RiskIntelAggregator:
         watchlist_entry = local_watchlist.get(normalized) or PUBLIC_DEMO_TAGS.get(normalized)
         if watchlist_entry:
             tags.append(watchlist_entry.label)
-            findings.append((watchlist_entry.category, watchlist_entry.severity, watchlist_entry.notes))
             category = watchlist_entry.category.lower()
+            evidence = watchlist_entry.evidence or watchlist_entry.notes or f"Watchlist hit: {watchlist_entry.label}"
+            findings.append((watchlist_entry.category, watchlist_entry.severity, evidence))
             is_direct = category in DIRECT_HIT_CATEGORIES
             # Map category to canonical source name for the hit
-            source_name = _source_for_category(category)
+            source_name = _source_for_watchlist_entry(watchlist_entry, category)
             source_hits.append(
                 RiskSourceHit(
                     source=source_name,
@@ -78,7 +85,7 @@ class RiskIntelAggregator:
                     severity=watchlist_entry.severity,
                     address=normalized,
                     label=watchlist_entry.label,
-                    evidence=watchlist_entry.notes or f"Watchlist hit: {watchlist_entry.label}",
+                    evidence=evidence,
                     confidence=1.0,
                     source_updated_at=now,
                     direct_hit=is_direct or watchlist_entry.severity == RiskLevel.critical,
@@ -86,52 +93,12 @@ class RiskIntelAggregator:
                 )
             )
 
-        # ── GoPlus API ────────────────────────────────────────────────────
-        goplus_result = await self.goplus.get_address_security(normalized, chain_id=chain_id)
-        behaviors = goplus_result.get("malicious_behavior") or []
-        if isinstance(behaviors, str):
-            behaviors = [behaviors]
-        for behavior in behaviors:
-            if not behavior:
-                continue
-            behavior_str = str(behavior)
-            tags.append(behavior_str)
-            severity = RiskLevel.critical if behavior in HIGH_RISK_BEHAVIORS else RiskLevel.high
-            findings.append(("goplus", severity, f"GoPlus malicious behavior: {behavior_str}"))
-            category_lower = behavior_str.lower()
-            source_hits.append(
-                RiskSourceHit(
-                    source=SOURCE_GOPLUS,
-                    category=behavior_str,
-                    severity=severity,
-                    address=normalized,
-                    label=behavior_str,
-                    evidence=f"GoPlus malicious behavior: {behavior_str}",
-                    confidence=0.90,
-                    source_updated_at=now,
-                    direct_hit=category_lower in DIRECT_HIT_CATEGORIES,
-                    raw_payload=goplus_result,
-                )
-            )
-
-        if goplus_result.get("doubt_list") == "1" and not behaviors:
-            tags.append("doubt_list")
-            findings.append(("goplus", RiskLevel.medium, "GoPlus marks the address as suspicious."))
-            source_hits.append(
-                RiskSourceHit(
-                    source=SOURCE_GOPLUS,
-                    category="doubt_list",
-                    severity=RiskLevel.medium,
-                    address=normalized,
-                    label="doubt_list",
-                    evidence="GoPlus marks the address as suspicious.",
-                    confidence=0.65,
-                    source_updated_at=now,
-                    raw_payload=goplus_result,
-                )
-            )
-        if goplus_result.get("trust_list") == "1":
-            tags.append("trust_list")
+        # ── Provider API results ──────────────────────────────────────────
+        for provider in self.providers:
+            result = await provider.check_address(normalized, chain_id=chain_id, seen_at=now)
+            tags.extend(result.tags)
+            findings.extend(result.findings)
+            source_hits.extend(result.source_hits)
 
         deduped_tags = sorted(set(tags))
         return deduped_tags, findings, source_hits
@@ -153,3 +120,11 @@ def _source_for_category(category: str) -> str:
         "stablecoin_blacklist": "stablecoin_blacklist",
     }
     return mapping.get(category.lower(), SOURCE_WATCHLIST)
+
+
+def _source_for_watchlist_entry(entry: WatchlistEntry, category: str) -> str:
+    source = entry.source.strip()
+    if source and source not in {"manual", "manual_import", SOURCE_WATCHLIST}:
+        return source
+    return _source_for_category(category)
+

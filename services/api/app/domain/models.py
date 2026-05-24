@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class InvestigationMode(str, Enum):
@@ -34,12 +34,6 @@ class RiskDisposition(str, Enum):
 class TransferDirection(str, Enum):
     inbound = "inbound"
     outbound = "outbound"
-
-
-class AssetSymbol(str, Enum):
-    eth = "ETH"
-    usdt = "USDT"
-    usdc = "USDC"
 
 
 class InvestigationCreate(BaseModel):
@@ -151,26 +145,56 @@ class RiskResponse(BaseModel):
     recommended_actions: list[str] = Field(default_factory=list)
 
 
-class ScreeningTransactionCreate(BaseModel):
+class PreTransactionScreeningCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     chain_id: str = "1"
-    asset: AssetSymbol = AssetSymbol.eth
+    asset: str = Field("ETH", min_length=2, max_length=32)
+    asset_type: Literal["native", "erc20"] | None = None
+    token_address: str | None = Field(None, min_length=42, max_length=42)
     direction: TransferDirection = TransferDirection.outbound
-    from_address: str = Field(..., min_length=42, max_length=42)
-    to_address: str = Field(..., min_length=42, max_length=42)
-    amount: float = Field(..., ge=0)
+    counterparty_address: str = Field(..., min_length=42, max_length=42)
+    amount: float = Field(..., gt=0)
     customer_id: str | None = None
     team_id: str | None = None
-    tx_hash: str | None = Field(None, min_length=66, max_length=66)
     timestamp: int | None = None
+
+    @field_validator("asset")
+    @classmethod
+    def normalize_asset_symbol(cls, value: str) -> str:
+        return value.strip().upper()
+
+    @field_validator("asset_type", mode="before")
+    @classmethod
+    def normalize_asset_type(cls, value):
+        if value is None or value == "":
+            return None
+        return str(value).strip().lower()
+
+    @field_validator("token_address", mode="before")
+    @classmethod
+    def normalize_token_address_field(cls, value):
+        if value is None or value == "":
+            return None
+        return str(value).strip().lower()
+
+    @field_validator("counterparty_address", mode="before")
+    @classmethod
+    def normalize_counterparty_address(cls, value):
+        return str(value).strip().lower()
+
+
+ScreeningTransactionCreate = PreTransactionScreeningCreate
 
 
 class ScreeningResponse(BaseModel):
     id: str
     chain_id: str
-    asset: AssetSymbol
+    asset: str
     direction: TransferDirection
-    from_address: str
-    to_address: str
+    counterparty_address: str
+    from_address: str | None = None
+    to_address: str | None = None
     amount: float
     risk_score: float
     risk_level: RiskLevel
@@ -200,8 +224,11 @@ class ReportResponse(BaseModel):
 class WatchlistEntry(BaseModel):
     address: str = Field(..., min_length=42, max_length=42)
     label: str
+    source: str = "manual_import"
+    source_version: str = ""
     category: str = "manual"
     severity: RiskLevel = RiskLevel.high
+    evidence: str = ""
     notes: str = ""
 
 
@@ -215,6 +242,8 @@ class WatchlistImportRequest(BaseModel):
     payload: str
     default_category: str = "manual"
     default_severity: RiskLevel = RiskLevel.high
+    default_source: str = "manual_import"
+    default_source_version: str = ""
     replace: bool = False
 
 

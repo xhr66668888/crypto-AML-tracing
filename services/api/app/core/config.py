@@ -17,6 +17,7 @@ class Settings:
     cors_origins: tuple[str, ...] = ("http://localhost:5173", "http://127.0.0.1:5173")
     etherscan_api_key: str = ""
     etherscan_base_url: str = "https://api.etherscan.io/v2/api"
+    ethereum_rpc_url: str = "https://eth-mainnet.g.alchemy.com/public"
     goplus_token: str = ""
     deepseek_api_key: str = ""
     deepseek_base_url: str = "https://api.deepseek.com"
@@ -25,7 +26,9 @@ class Settings:
     demo_mode: bool = True
     max_stable_nodes: int = 75
     max_experimental_nodes: int = 160
+    watchlist_data_path: str = ".data/watchlist.json"
     etherscan_timeout_seconds: float = 10.0
+    ethereum_rpc_timeout_seconds: float = 10.0
     goplus_timeout_seconds: float = 10.0
     deepseek_timeout_seconds: float = 30.0
     connector_max_retries: int = 2
@@ -38,6 +41,7 @@ def get_settings() -> Settings:
         cors_origins=tuple(origin.strip() for origin in cors.split(",") if origin.strip()),
         etherscan_api_key=os.getenv("ETHERSCAN_API_KEY", ""),
         etherscan_base_url=os.getenv("ETHERSCAN_BASE_URL", "https://api.etherscan.io/v2/api"),
+        ethereum_rpc_url=os.getenv("ETHEREUM_RPC_URL", "https://eth-mainnet.g.alchemy.com/public"),
         goplus_token=os.getenv("GOPLUS_TOKEN", ""),
         deepseek_api_key=os.getenv("DEEPSEEK_API_KEY", ""),
         deepseek_base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
@@ -46,7 +50,9 @@ def get_settings() -> Settings:
         demo_mode=demo_mode,
         max_stable_nodes=int(os.getenv("MAX_STABLE_NODES", "75")),
         max_experimental_nodes=int(os.getenv("MAX_EXPERIMENTAL_NODES", "160")),
+        watchlist_data_path=os.getenv("WATCHLIST_DATA_PATH", ".data/watchlist.json"),
         etherscan_timeout_seconds=float(os.getenv("ETHERSCAN_TIMEOUT_SECONDS", "10")),
+        ethereum_rpc_timeout_seconds=float(os.getenv("ETHEREUM_RPC_TIMEOUT_SECONDS", "10")),
         goplus_timeout_seconds=float(os.getenv("GOPLUS_TIMEOUT_SECONDS", "10")),
         deepseek_timeout_seconds=float(os.getenv("DEEPSEEK_TIMEOUT_SECONDS", "30")),
         connector_max_retries=int(os.getenv("CONNECTOR_MAX_RETRIES", "2")),

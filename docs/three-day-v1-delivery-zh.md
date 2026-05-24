@@ -1,7 +1,7 @@
-# 三天可用版交付计划（多 Subagent 版）
+# 三天可用版交付计划（角色分工版）
 
-计划周期：原 2026-05-15 至 2026-05-17 的三天分段计划已折叠为 OpenCode 一次性并行交付（见 [.opencode/README.md](../.opencode/README.md) 的 one-shot kickoff prompt）；本文件中的"Day 1 / Day 2 / Day 3"现在只作为依赖顺序参考。
-目标：交付一个可被真实风控人员使用的 V1，由 10 个 OpenCode subagent 协同完成。两个脑力 subagent（架构 + 风险逻辑评审）通过 [opencode.json](../opencode.json) 锁定到 Codex GPT 5.5（`reasoningEffort: high`）；八个执行 subagent 不写 `model:`，沿用你 OpenCode 的默认模型（当前为 `mimo-v2.5-pro`）。Subagent 定义在 [.opencode/agents/](../.opencode/agents)，分工细节见 [team-assignments.md](team-assignments.md)。
+计划周期：原 2026-05-15 至 2026-05-17 的三天分段计划已折叠为一次性并行交付；本文件中的"Day 1 / Day 2 / Day 3"现在只作为依赖顺序参考。
+目标：交付一个可被真实风控人员使用的 V1，由 10 个 ownership 角色协同完成。分工细节见 [team-assignments.md](team-assignments.md)，必读 skill 索引见 [agent-skills.md](agent-skills.md)。
 
 ## 1. 可用版定义
 
@@ -25,14 +25,14 @@
 
 预留接口可以，不能假装已经生产可用。
 
-## 2. Subagent 分工总览
+## 2. 角色分工总览
 
-### 脑力 subagent（Codex GPT 5.5，`reasoningEffort: high`，在 `opencode.json` 中锁定）
+### 评审角色
 
 - **`aml-architect`**：API 契约、`docs/database/schema.sql`、`.env.example`、模块边界、direct-hit 政策、release checklist。
 - **`risk-logic-reviewer`**（read-only）：Pattern 正确性、scoring 校准、direct-hit 语义、报告幻觉风险、证据链完整性。
 
-### 执行 subagent（沿用 OpenCode 默认模型，当前为 `mimo-v2.5-pro`）
+### 执行角色
 
 - **`connector-engineer`**：`services/api/app/connectors/` 与 DeepSeek HTTP 层。
 - **`graph-pattern-engineer`**：`graph_builder.py` 与 `patterns.py`。
@@ -45,9 +45,9 @@
 
 ### 调度边界
 
-- `aml-architect` 是唯一的 contract owner。任何动 API/schema/env/模块边界的改动，必须先由它写或更新契约，执行 subagent 才能落地。
+- `aml-architect` 是唯一的 contract owner。任何动 API/schema/env/模块边界的改动，必须先由它写或更新契约，执行角色才能落地。
 - `risk-logic-reviewer` 不写产品代码。所有动 scoring/patterns/direct-hit/report 的改动合并前必须拿到它的 verdict。
-- 执行 subagent 只改自己 OWNED 的文件。跨界路由经 `aml-architect`。
+- 执行角色只改自己 OWNED 的文件。跨界路由经 `aml-architect`。
 
 ## 3. 三天日程
 
@@ -127,7 +127,7 @@ Day 3 验收：
 - 风控人员能完成筛查、调查、报告生成；
 - 构建与测试全部通过。
 
-## 4. 具体任务拆分（按 subagent）
+## 4. 具体任务拆分（按角色）
 
 ### `aml-architect`
 

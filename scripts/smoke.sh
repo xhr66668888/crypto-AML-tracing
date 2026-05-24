@@ -58,17 +58,16 @@ HEALTH=$(curl -sf "$BASE_URL/health")
 check "health status is ok" '"status"' "$HEALTH"
 check "demo_mode is true" '"demo_mode"' "$HEALTH"
 
-# ── 2. POST /api/v1/screening/transactions ──────────────────────────
+# ── 2. POST /api/v1/screening/pre-transactions ──────────────────────
 echo ""
-echo "[2] POST /api/v1/screening/transactions"
-SCREENING=$(curl -sf -X POST "$BASE_URL/api/v1/screening/transactions" \
+echo "[2] POST /api/v1/screening/pre-transactions"
+SCREENING=$(curl -sf -X POST "$BASE_URL/api/v1/screening/pre-transactions" \
   -H "Content-Type: application/json" \
   -d '{
     "chain_id": "1",
     "asset": "ETH",
     "direction": "outbound",
-    "from_address": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    "to_address": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "counterparty_address": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     "amount": 1.5
   }')
 SCREENING_ID=$(json_field "$SCREENING" "id")
@@ -153,15 +152,14 @@ check "watchlist contains OFAC entry" "ofac" "$WATCHLIST"
 
 # ── 11. Verify direct-hit forces hold_for_manual_review ─────────────
 echo ""
-echo "[11] POST /api/v1/screening/transactions (direct-hit verification)"
-DIRECT_HIT=$(curl -sf -X POST "$BASE_URL/api/v1/screening/transactions" \
+echo "[11] POST /api/v1/screening/pre-transactions (direct-hit verification)"
+DIRECT_HIT=$(curl -sf -X POST "$BASE_URL/api/v1/screening/pre-transactions" \
   -H "Content-Type: application/json" \
   -d '{
     "chain_id": "1",
     "asset": "USDC",
     "direction": "outbound",
-    "from_address": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    "to_address": "0xdddddddddddddddddddddddddddddddddddddddd",
+    "counterparty_address": "0xdddddddddddddddddddddddddddddddddddddddd",
     "amount": 9500
   }')
 check "direct-hit disposition is hold_for_manual_review" "hold_for_manual_review" "$DIRECT_HIT"

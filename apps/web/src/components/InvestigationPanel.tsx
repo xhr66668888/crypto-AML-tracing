@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Play, Loader2, AlertTriangle, GitBranch, BarChart3, FileText, ListChecks } from "lucide-react";
+import { Play, Loader2, AlertTriangle, GitBranch, BarChart3, FileText, ListChecks, Search } from "lucide-react";
 import type { InvestigationRecord, InvestigationGraph, RiskResponse, GraphNode } from "../types";
 import { request } from "../api";
 import { RiskSummary } from "./RiskSummary";
@@ -41,10 +41,13 @@ export function InvestigationPanel() {
         method: "POST",
         body: JSON.stringify({ target: target.trim(), depth, mode, chain_id: "1" })
       });
-      const graph = await request<InvestigationGraph>(
+      if (created.status.status === "failed") {
+        throw new Error(created.status.summary || "Analysis failed before graph generation.");
+      }
+      const graph = created.graph ?? await request<InvestigationGraph>(
         `/api/v1/investigations/${created.status.id}/graph`
       );
-      const risk = await request<RiskResponse>(
+      const risk = created.risk ?? await request<RiskResponse>(
         `/api/v1/investigations/${created.status.id}/risk`
       );
       setRecord({ status: created.status, graph, risk });
@@ -62,18 +65,28 @@ export function InvestigationPanel() {
 
   return (
     <div className="investigation-panel">
+      <section className="analysis-header">
+        <div>
+          <div className="panel-title">
+            <Search size={18} />
+            Address Analysis
+          </div>
+          <p>Post-broadcast graph screening for an Ethereum address or transaction hash.</p>
+        </div>
+      </section>
+
       <div className="query-strip">
         <label className="target-input">
-          <span>Address or transaction hash</span>
+          <span>Ethereum address or transaction hash</span>
           <input
             value={target}
             onChange={(e) => setTarget(e.target.value)}
             spellCheck={false}
-            placeholder="0x..."
+            placeholder="0x address or 0x transaction hash"
           />
         </label>
         <label>
-          <span>Depth</span>
+          <span>Trace depth</span>
           <select value={depth} onChange={(e) => setDepth(Number(e.target.value))}>
             <option value={1}>1 hop</option>
             <option value={2}>2 hops</option>
@@ -82,7 +95,7 @@ export function InvestigationPanel() {
           </select>
         </label>
         <label>
-          <span>Mode</span>
+          <span>Trace mode</span>
           <select value={mode} onChange={(e) => setMode(e.target.value as "stable" | "experimental")}>
             <option value="stable">Stable</option>
             <option value="experimental">Experimental</option>
@@ -90,7 +103,7 @@ export function InvestigationPanel() {
         </label>
         <button className="primary-button" onClick={runInvestigation} disabled={loading}>
           {loading ? <Loader2 className="spin" size={18} /> : <Play size={18} />}
-          Investigate
+          Analyze
         </button>
       </div>
 
@@ -167,8 +180,8 @@ function OverviewTab({
     return (
       <div className="empty-state large">
         <GitBranch size={48} />
-        <h3>No investigation data</h3>
-        <p>Enter an address above and click "Investigate" to begin analysis.</p>
+        <h3>No analysis loaded</h3>
+        <p>Enter an Ethereum address or transaction hash above to trace graph context and risk evidence.</p>
       </div>
     );
   }
@@ -213,7 +226,7 @@ function EvidenceTab({ risk }: { risk: RiskResponse | null }) {
       <div className="empty-state large">
         <ListChecks size={48} />
         <h3>No evidence available</h3>
-        <p>Run an investigation to collect pattern signals and source hits.</p>
+        <p>Run an analysis to collect pattern signals and source hits.</p>
       </div>
     );
   }

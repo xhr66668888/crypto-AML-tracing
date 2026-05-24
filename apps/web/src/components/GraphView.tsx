@@ -177,7 +177,7 @@ export function GraphView({
     return (
       <div className="graph-canvas graph-empty">
         <Activity size={34} />
-        <span>Enter an address and run investigation to see the transaction graph.</span>
+        <span>Enter an address or transaction hash to see the graph.</span>
       </div>
     );
   }

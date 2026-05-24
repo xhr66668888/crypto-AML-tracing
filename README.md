@@ -85,26 +85,40 @@ Or run the full stack:
 docker compose up -d
 ```
 
-The current API uses an in-memory store so the application remains easy to run locally. The PostgreSQL schema in `docs/database/schema.sql` defines the persistence target for screening events, source hits, pattern signals, network metrics, investigations, and audit logs.
+The current API keeps investigations and screening events in memory so the
+application remains easy to run locally. Watchlist rows persist to
+`WATCHLIST_DATA_PATH` (`.data/watchlist.json` by default). The PostgreSQL schema
+in `docs/database/schema.sql` defines the later persistence target for screening
+events, source hits, pattern signals, network metrics, investigations, and audit
+logs.
 
 ## API Keys
 
 Demo mode is enabled by default. To call real providers, set `DEMO_MODE=false` and configure:
 
 - `ETHERSCAN_API_KEY`
+- `ETHEREUM_RPC_URL` for Ethereum JSON-RPC. The default is Alchemy's public
+  mainnet endpoint; for production use an Alchemy private endpoint such as
+  `https://eth-mainnet.g.alchemy.com/v2/<api-key>`.
 - `GOPLUS_TOKEN`
 - `DEEPSEEK_API_KEY`
 
 Keep `.env` local; it is ignored by git.
 
-## Working with OpenCode Subagents
+## Project Skills and Ownership
 
-The project is delivered by 10 OpenCode subagents defined under [`.opencode/agents/`](.opencode/agents). Two brain agents (architecture + risk-logic review) are pinned to **Codex GPT 5.5 with `reasoningEffort: high`** via [`opencode.json`](opencode.json). The eight execution agents have no per-file model override and **inherit the OpenCode default** (`mimo-v2.5-pro` in this setup).
+Project contributors should use the live skill index in
+[`docs/agent-skills.md`](docs/agent-skills.md) before editing code or docs.
+It points to the required quality, pre-merge, and evidence-integrity skills.
+
+Ownership is still role-based:
 
 - `aml-architect` — API contracts, schema, `.env`, module boundaries, release.
-- `risk-logic-reviewer` — read-only audit for scoring, patterns, direct-hit, reports.
-- `connector-engineer`, `graph-pattern-engineer`, `risk-intel-engineer`, `raindrop-ml-engineer`, `report-engineer`, `web-workbench-engineer`, `qa-devops-engineer`, `db-storage-engineer` — execution.
+- `risk-logic-reviewer` — read-only audit for scoring, patterns, direct-hit,
+  and reports.
+- `connector-engineer`, `graph-pattern-engineer`, `risk-intel-engineer`,
+  `raindrop-ml-engineer`, `report-engineer`, `web-workbench-engineer`,
+  `qa-devops-engineer`, `db-storage-engineer` — implementation ownership.
 
-Detailed roles, owned paths, and deliverables live in [`docs/team-assignments.md`](docs/team-assignments.md). The one-shot delivery prompt and parallel invocation guide live in [`.opencode/README.md`](.opencode/README.md).
-
-Run `opencode` in the repo root, then invoke a subagent with `@aml-architect`, `@risk-logic-reviewer`, etc., or have the primary agent dispatch many in parallel via the Task tool.
+Detailed roles, owned paths, and deliverables live in
+[`docs/team-assignments.md`](docs/team-assignments.md).

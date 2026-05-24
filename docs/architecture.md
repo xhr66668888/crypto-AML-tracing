@@ -2,18 +2,23 @@
 
 ## Product Shape
 
-This project is a local AML risk operations tool for Cregis compliance and risk analysts. The first release supports Ethereum mainnet ETH/USDT/USDC. It prioritizes pre-release transfer screening, single-investigation workflows, explainable evidence, deterministic pattern analysis, and an experimental Raindrop-derived risk layer.
+This project is a local AML risk operations tool for Cregis compliance and risk analysts. The first release supports Ethereum mainnet ETH plus mainstream ERC-20 screening for USDT, USDC, DAI, WETH, WBTC, and custom ERC-20 contracts supplied by `token_address`. It prioritizes pre-release transfer screening, single-investigation workflows, explainable evidence, deterministic pattern analysis, and an experimental Raindrop-derived risk layer.
 
 ## Runtime Flow
 
 1. Operator screens an inbound/outbound transfer through `POST /api/v1/screening/transactions`, or an analyst submits an address/transaction hash from the React workbench.
 2. FastAPI validates the target and creates an investigation record.
-3. `EtherscanClient` fetches or demo-generates transaction data.
-4. `GraphBuilder` expands a bounded transaction graph to 3 stable hops or 5 experimental hops.
+3. `EtherscanClient` fetches or demo-generates native `txlist` data or ERC-20 `tokentx` data for screening.
+4. `GraphBuilder` expands a bounded transaction graph to 3 stable hops or 5 experimental hops for investigations. Pre-transaction screening uses a lighter two-sided context graph: from-address and to-address are each expanded to at most 2 hops and 6 recent transactions per address.
 5. `RiskIntelAggregator` enriches graph nodes with GoPlus, local watchlist tags, and source-hit semantics for direct sanctions/PEP/stablecoin-blacklist style matches.
 6. `PatternAnalyzer` detects deterministic AML patterns such as layering, aggregation, peel-chain behavior, threshold structuring, dusting, sparse-address large transfers, centrality hubs, and risk propagation.
 7. `RiskScoringEngine` computes rule score, Raindrop score, final risk score, findings, top paths, disposition hints, and recommended actions.
 8. `DeepSeekReporter` generates an English report when an API key is configured, or a local report otherwise.
+
+Screening context is evidence support only. It can show direct party hits,
+recent high-risk exposure within one or two hops, amount-threshold signals, and
+short-time repeated transfers, but it must not be described as complete fund
+provenance.
 
 ## Module Boundaries
 
@@ -41,22 +46,24 @@ OFAC/sanctions, PEP, Circle/Tether/stablecoin blacklist, and local critical watc
 - DeepSeek receives full investigation context only when `DEEPSEEK_API_KEY` is configured and a report is requested.
 - The API is intended to listen on localhost in production packaging unless Cregis explicitly enables network access.
 
-## Subagent Ownership
+## Ownership Boundaries
 
-Module boundaries map 1:1 to OpenCode subagents defined under [`.opencode/agents/`](../.opencode/agents). Two brain agents are pinned to **Codex GPT 5.5 with `reasoningEffort: high`** via [`opencode.json`](../opencode.json); the eight execution agents have no model override and **inherit the OpenCode default** (e.g. `mimo-v2.5-pro`).
+Module boundaries map to repository ownership roles. These roles are used for
+review routing and scope control; no separate per-agent markdown files are
+required in the repository.
 
-| Module / Concern | Subagent | Model |
-| --- | --- | --- |
-| API contracts, schema boundary, `.env`, module boundaries, release | `aml-architect` | Codex GPT 5.5, high |
-| Scoring, pattern, direct-hit, report audit (read-only) | `risk-logic-reviewer` | Codex GPT 5.5, high |
-| `services/api/app/connectors/` (Etherscan, GoPlus, DeepSeek HTTP) | `connector-engineer` | OpenCode default |
-| `services/api/app/domain/graph_builder.py` and `patterns.py` | `graph-pattern-engineer` | OpenCode default |
-| `services/api/app/domain/risk_intel.py`, rule-score side of `scoring.py`, watchlist | `risk-intel-engineer` | OpenCode default |
-| `services/api/app/ml/`, `services/ml/raindrop_aml/` | `raindrop-ml-engineer` | OpenCode default |
-| `services/api/app/services/reporting.py` | `report-engineer` | OpenCode default |
-| `apps/web/` | `web-workbench-engineer` | OpenCode default |
-| `infra/scripts/`, `.github/workflows/`, `docker-compose.yml`, `pytest.ini`, smoke | `qa-devops-engineer` | OpenCode default |
-| `docs/database/schema.sql`, `services/api/app/storage/` | `db-storage-engineer` | OpenCode default |
+| Module / Concern | Owner |
+| --- | --- |
+| API contracts, schema boundary, `.env`, module boundaries, release | `aml-architect` |
+| Scoring, pattern, direct-hit, report audit (read-only) | `risk-logic-reviewer` |
+| `services/api/app/connectors/` (Etherscan, GoPlus, DeepSeek HTTP) | `connector-engineer` |
+| `services/api/app/domain/graph_builder.py` and `patterns.py` | `graph-pattern-engineer` |
+| `services/api/app/domain/risk_intel.py`, rule-score side of `scoring.py`, watchlist | `risk-intel-engineer` |
+| `services/api/app/ml/`, `services/ml/raindrop_aml/` | `raindrop-ml-engineer` |
+| `services/api/app/services/reporting.py` | `report-engineer` |
+| `apps/web/` | `web-workbench-engineer` |
+| `infra/scripts/`, `.github/workflows/`, `docker-compose.yml`, `pytest.ini`, smoke | `qa-devops-engineer` |
+| `docs/database/schema.sql`, `services/api/app/storage/` | `db-storage-engineer` |
 
 Coordination: every change touching API / schema / `.env` / module boundaries goes through `aml-architect` first. Every change touching scoring, patterns, direct-hit, or report content needs a `risk-logic-reviewer` verdict before merge. Execution agents stay in their owned files; cross-boundary changes are routed through `aml-architect`. The `RaindropAmlScorer.predict(graph) -> RaindropResult` interface is frozen until `aml-architect` approves a change. Detailed roles and deliverables: [`docs/team-assignments.md`](team-assignments.md).
 
@@ -75,11 +82,8 @@ guidelines and the project-director acceptance checks in:
   — compliance-flavoured Karpathy adaptation; mandatory for any change that
   touches scoring, patterns, direct-hit, or report content.
 
-Cursor auto-loads these via
-[`.cursor/rules/cregis-code-quality.mdc`](../.cursor/rules/cregis-code-quality.mdc).
-OpenCode subagents discover them through their per-agent `Required skills`
-section and through the universal [`AGENTS.md`](../AGENTS.md) at the repo
-root.
+The concise live index for these skills is
+[`docs/agent-skills.md`](agent-skills.md).
 
 The open round-one findings from the first acceptance audit live in
 [`docs/acceptance-review.md`](acceptance-review.md). They are mirrored in

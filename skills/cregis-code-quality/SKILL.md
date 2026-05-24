@@ -14,10 +14,10 @@ applies_to:
 
 This is the company quality bar for the Cregis ETH AML Tracing project. It is the
 project-customised version of the Karpathy LLM-coding guidelines under
-`andrej-karpathy-skills/skills/karpathy-guidelines/`. Every subagent under
-`.opencode/agents/` and every human contributor MUST follow it.
+`andrej-karpathy-skills/skills/karpathy-guidelines/`. Every agent and human
+contributor MUST follow it.
 
-The project director will reject any PR or subagent diff that violates one of
+The project director will reject any PR or agent diff that violates one of
 the **Acceptance Checks** at the bottom of this file.
 
 **Tradeoff:** these rules bias toward caution over speed. For trivial typo-class
@@ -30,7 +30,7 @@ edits, use judgment.
 Before editing any file in this repository:
 
 - State your assumptions explicitly. If uncertain, ask the project director or
-  the owning subagent listed in `docs/team-assignments.md`.
+  the owning role listed in `docs/team-assignments.md`.
 - If multiple interpretations of a request exist, present them — do not pick
   silently.
 - If a simpler approach exists, say so and push back when warranted.
@@ -96,9 +96,9 @@ When your changes create orphans:
 - Don't remove pre-existing dead code unless asked or unless it sits inside
   the file you are editing AND is unambiguously dead.
 
-**Cross-module rule:** Execution agents stay inside the files listed in their
-`.opencode/agents/*.md` "owned paths". Any change outside owned paths goes
-through `aml-architect` first.
+**Cross-module rule:** Execution agents stay inside the owned paths listed in
+`docs/team-assignments.md`. Any change outside owned paths goes through
+`aml-architect` first.
 
 The test: every changed line should trace directly to the user's request OR to
 an `aml-architect`-approved contract change.
@@ -152,9 +152,8 @@ not skim:
 
 ## How to Invoke This Skill
 
-- Cursor: this skill is auto-loaded via `.cursor/rules/cregis-code-quality.mdc`.
-- OpenCode subagents: each agent definition under `.opencode/agents/` lists this
-  skill in its `Inputs you must read before deciding` section.
+- Agent runtimes: read this skill through `docs/agent-skills.md` before making
+  changes.
 - Humans: read this file before opening a PR. The project director enforces it
   at merge time.
 

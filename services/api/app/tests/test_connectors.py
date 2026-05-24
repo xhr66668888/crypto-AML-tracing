@@ -124,6 +124,28 @@ class TestEtherscanDemoMode:
         txs2 = await client.get_transactions(addr2)
         assert txs1 != txs2
 
+    @pytest.mark.asyncio
+    async def test_get_token_transfers_deterministic(self, client: EtherscanClient):
+        addr = "0x" + "a" * 40
+        token = "0x" + "d" * 40
+        txs1 = await client.get_token_transfers(addr, token_address=token)
+        txs2 = await client.get_token_transfers(addr, token_address=token)
+        assert txs1 == txs2
+        assert len(txs1) == 8
+        assert txs1[0]["contract_address"] == token
+        assert txs1[0]["source"] == "demo_tokentx"
+
+    @pytest.mark.asyncio
+    async def test_get_screening_transaction_demo_eth(self, client: EtherscanClient):
+        tx_hash = "0x" + "f" * 64
+        result = await client.get_screening_transaction(tx_hash)
+
+        assert result["tx_hash"] == tx_hash
+        assert result["asset"] == "ETH"
+        assert result["asset_type"] == "native"
+        assert result["from_address"].startswith("0x")
+        assert result["to_address"].startswith("0x")
+
 
 class TestEtherscanRealModeErrors:
     """Real mode must produce structured ConnectorError on failures."""
@@ -137,8 +159,9 @@ class TestEtherscanRealModeErrors:
             timeout_seconds=0.01,
             max_retries=1,
         )
-        with pytest.raises(ConnectorError) as exc_info:
-            await client.get_transactions("0x" + "a" * 40)
+        with patch("httpx.AsyncClient.get", side_effect=httpx.TimeoutException("simulated timeout")):
+            with pytest.raises(ConnectorError) as exc_info:
+                await client.get_transactions("0x" + "a" * 40)
         err = exc_info.value
         assert err.provider == "etherscan"
         assert err.retryable is True
@@ -213,6 +236,121 @@ class TestEtherscanRealModeErrors:
         assert len(txs) > 0
         assert txs[0]["source"] == "demo"
 
+    @pytest.mark.asyncio
+    async def test_get_token_transfers_calls_tokentx_with_contract(self):
+        client = EtherscanClient(
+            api_key="test-key",
+            base_url="https://api.etherscan.io/v2/api",
+            demo_mode=False,
+            timeout_seconds=5.0,
+            max_retries=1,
+        )
+        token = "0x" + "d" * 40
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "status": "1",
+            "message": "OK",
+            "result": [
+                {
+                    "hash": "0xabc",
+                    "from": "0x1111111111111111111111111111111111111111",
+                    "to": "0x2222222222222222222222222222222222222222",
+                    "value": "123450000",
+                    "timeStamp": "1700000000",
+                    "blockNumber": "19000000",
+                    "isError": "0",
+                    "contractAddress": token,
+                    "tokenName": "USD Coin",
+                    "tokenSymbol": "USDC",
+                    "tokenDecimal": "6",
+                }
+            ],
+        }
+
+        with patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mock_response) as mock_get:
+            result = await client.get_token_transfers("0x" + "a" * 40, token_address=token, chain_id="1")
+
+        params = mock_get.call_args.kwargs["params"]
+        assert params["action"] == "tokentx"
+        assert params["contractaddress"] == token
+        assert result[0]["value_token"] == 123.45
+        assert result[0]["token_symbol"] == "USDC"
+
+    @pytest.mark.asyncio
+    async def test_get_screening_transaction_decodes_erc20_transfer_log(self):
+        client = EtherscanClient(api_key="test-key", demo_mode=False, max_retries=1)
+        tx_hash = "0x" + "9" * 64
+        token = "0x" + "a0" * 20
+        sender = "0x" + "11" * 20
+        recipient = "0x" + "22" * 20
+        client._get = AsyncMock(
+            side_effect=[
+                {
+                    "result": {
+                        "from": sender,
+                        "to": token,
+                        "value": "0x0",
+                    }
+                },
+                {
+                    "result": {
+                        "logs": [
+                            {
+                                "address": token,
+                                "topics": [
+                                    "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+                                    _topic_for_address(sender),
+                                    _topic_for_address(recipient),
+                                ],
+                                "data": hex(123_450_000),
+                            }
+                        ]
+                    }
+                },
+                {"result": hex(6)},
+                {"result": _abi_string("USDC")},
+                {"result": _abi_string("USD Coin")},
+            ]
+        )
+
+        result = await client.get_screening_transaction(tx_hash, chain_id="1")
+
+        assert result["asset"] == "USDC"
+        assert result["asset_type"] == "erc20"
+        assert result["token_address"] == token
+        assert result["from_address"] == sender
+        assert result["to_address"] == recipient
+        assert result["amount"] == 123.45
+
+    @pytest.mark.asyncio
+    async def test_get_transaction_details_uses_block_timestamp(self):
+        client = EtherscanClient(api_key="test-key", demo_mode=False, max_retries=1)
+        tx_hash = "0x" + "8" * 64
+        sender = "0x" + "11" * 20
+        recipient = "0x" + "22" * 20
+        client._get = AsyncMock(
+            side_effect=[
+                {
+                    "result": {
+                        "from": sender,
+                        "to": recipient,
+                        "value": "0xde0b6b3a7640000",
+                        "blockNumber": "0x1234",
+                    }
+                },
+                {"result": {"timestamp": hex(1_700_000_000)}},
+            ]
+        )
+
+        result = await client.get_transaction_details(tx_hash, chain_id="1")
+
+        assert result["from"] == sender
+        assert result["to"] == recipient
+        assert result["value_eth"] == 1
+        assert result["timestamp"] == 1_700_000_000
+        assert result["block_number"] == "0x1234"
+
 
 class TestEtherscanRetries:
     """Retry logic with exponential back-off."""
@@ -257,6 +395,48 @@ class TestEtherscanRetries:
             result = await client.get_transactions("0x" + "a" * 40)
 
         assert call_count == 3
+        assert len(result) == 1
+        assert result[0]["source"] == "etherscan"
+
+    @pytest.mark.asyncio
+    async def test_retries_rate_limit_payload_then_success(self):
+        client = EtherscanClient(
+            api_key="test-key",
+            base_url="https://api.etherscan.io/v2/api",
+            demo_mode=False,
+            timeout_seconds=5.0,
+            max_retries=2,
+        )
+        rate_limited = MagicMock(spec=httpx.Response)
+        rate_limited.status_code = 200
+        rate_limited.json.return_value = {
+            "status": "0",
+            "message": "NOTOK",
+            "result": "Max calls per sec rate limit reached (3/sec)",
+        }
+        success_response = MagicMock(spec=httpx.Response)
+        success_response.status_code = 200
+        success_response.json.return_value = {
+            "status": "1",
+            "message": "OK",
+            "result": [
+                {
+                    "hash": "0xabc",
+                    "from": "0x1111111111111111111111111111111111111111",
+                    "to": "0x2222222222222222222222222222222222222222",
+                    "value": "1000000000000000000",
+                    "timeStamp": "1700000000",
+                    "blockNumber": "19000000",
+                    "isError": "0",
+                }
+            ],
+        }
+
+        with patch("httpx.AsyncClient.get", new_callable=AsyncMock, side_effect=[rate_limited, success_response]) as mock_get:
+            with patch("asyncio.sleep", new_callable=AsyncMock):
+                result = await client.get_transactions("0x" + "a" * 40)
+
+        assert mock_get.call_count == 2
         assert len(result) == 1
         assert result[0]["source"] == "etherscan"
 
@@ -388,8 +568,9 @@ class TestGoPlusRealModeErrors:
             timeout_seconds=0.01,
             max_retries=1,
         )
-        with pytest.raises(ConnectorError) as exc_info:
-            await client.get_address_security("0x" + "a" * 40)
+        with patch("httpx.AsyncClient.get", side_effect=httpx.TimeoutException("simulated timeout")):
+            with pytest.raises(ConnectorError) as exc_info:
+                await client.get_address_security("0x" + "a" * 40)
         err = exc_info.value
         assert err.provider == "goplus"
         assert err.retryable is True
@@ -448,10 +629,63 @@ class TestGoPlusRealModeErrors:
         assert "GoPlus API error" in exc_info.value.message
 
     @pytest.mark.asyncio
-    async def test_real_mode_without_token_falls_back_to_demo(self):
+    async def test_4029_rate_limit_retries_then_success(self):
+        client = GoPlusClient(
+            token="",
+            demo_mode=False,
+            timeout_seconds=5.0,
+            max_retries=2,
+        )
+        rate_limited = MagicMock(spec=httpx.Response)
+        rate_limited.status_code = 200
+        rate_limited.json.return_value = {"code": 4029, "message": "too many requests"}
+        success_response = MagicMock(spec=httpx.Response)
+        success_response.status_code = 200
+        success_response.json.return_value = {
+            "code": 1,
+            "message": "ok",
+            "result": {"address": "0xaaaa", "blacklist_doubt": "0"},
+        }
+
+        with patch("httpx.AsyncClient.get", new_callable=AsyncMock, side_effect=[rate_limited, success_response]) as mock_get:
+            with patch("asyncio.sleep", new_callable=AsyncMock):
+                result = await client.get_address_security("0x" + "a" * 40)
+
+        assert mock_get.call_count == 2
+        assert result["address"] == "0xaaaa"
+
+    @pytest.mark.asyncio
+    async def test_real_mode_without_token_calls_free_endpoint(self):
         client = GoPlusClient(token="", demo_mode=False)
-        result = await client.get_address_security("0x" + "a" * 40)
-        assert result["source"] == "demo-goplus"
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "code": 1,
+            "message": "ok",
+            "result": {"address": "0xaaaa", "blacklist_doubt": "0"},
+        }
+
+        with patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mock_response) as mock_get:
+            result = await client.get_address_security("0x" + "a" * 40)
+
+        assert result["address"] == "0xaaaa"
+        assert mock_get.call_args.kwargs["headers"] is None
+
+    @pytest.mark.asyncio
+    async def test_app_key_like_token_omits_auth_header(self):
+        client = GoPlusClient(token="a" * 32, demo_mode=False)
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "code": 1,
+            "message": "ok",
+            "result": {"address": "0xaaaa", "blacklist_doubt": "0"},
+        }
+
+        with patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mock_response) as mock_get:
+            await client.get_address_security("0x" + "a" * 40)
+
+        assert mock_get.call_args.kwargs["headers"] is None
 
 
 class TestGoPlusRetries:
@@ -570,8 +804,9 @@ class TestDeepSeekRealModeErrors:
             timeout_seconds=0.01,
             max_retries=1,
         )
-        with pytest.raises(ConnectorError) as exc_info:
-            await client.generate_report({"investigation_id": "inv-t", "target": "0x" + "a" * 40})
+        with patch("httpx.AsyncClient.post", side_effect=httpx.TimeoutException("simulated timeout")):
+            with pytest.raises(ConnectorError) as exc_info:
+                await client.generate_report({"investigation_id": "inv-t", "target": "0x" + "a" * 40})
         err = exc_info.value
         assert err.provider == "deepseek"
         assert err.retryable is True
@@ -665,3 +900,14 @@ class TestDeepSeekRetries:
 
         assert call_count == 3
         assert result == "Report content"
+
+
+def _topic_for_address(address: str) -> str:
+    return "0x" + address.removeprefix("0x").rjust(64, "0")
+
+
+def _abi_string(value: str) -> str:
+    encoded = value.encode().hex()
+    length = len(value.encode())
+    padded_length = ((len(encoded) + 63) // 64) * 64
+    return "0x" + f"{32:064x}" + f"{length:064x}" + encoded.ljust(padded_length, "0")

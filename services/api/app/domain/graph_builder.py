@@ -43,6 +43,9 @@ class GraphBuilder:
         chain_id: str,
         depth: int,
         mode: InvestigationMode,
+        token_address: str | None = None,
+        asset_symbol: str | None = None,
+        root_source: str = "target",
     ) -> GraphBuildResult:
         max_nodes = self.max_experimental_nodes if mode == InvestigationMode.experimental else self.max_stable_nodes
         max_txs_per_address = 10 if mode == InvestigationMode.experimental else 6
@@ -51,7 +54,7 @@ class GraphBuilder:
 
         root = normalize_address(root_address)
         node_map: dict[str, GraphNode] = {
-            root: GraphNode(id=root, address=root, label=short_address(root), hop=0, source="target")
+            root: GraphNode(id=root, address=root, label=short_address(root), hop=0, source=root_source)
         }
         edge_map: dict[str, GraphEdge] = {}
         raw_transactions: list[dict] = []
@@ -73,7 +76,15 @@ class GraphBuilder:
                 continue
             visited.add(address)
 
-            txs = await self.etherscan.get_transactions(address, offset=max_txs_per_address)
+            if token_address:
+                txs = await self.etherscan.get_token_transfers(
+                    address,
+                    token_address=token_address,
+                    offset=max_txs_per_address,
+                    chain_id=chain_id,
+                )
+            else:
+                txs = await self.etherscan.get_transactions(address, offset=max_txs_per_address, chain_id=chain_id)
             raw_transactions.extend(txs)
 
             for tx in txs:
@@ -83,11 +94,13 @@ class GraphBuilder:
                     continue
 
                 timestamp = int(tx.get("timestamp") or 0)
-                value_eth = float(tx.get("value_eth") or 0)
+                raw_value = tx.get("value_token") if token_address else tx.get("value_eth")
+                value = float(raw_value or 0)
+                tx_asset_symbol = str(tx.get("token_symbol") or asset_symbol or "ETH").upper()
 
                 # Update aggregation counters
-                total_out[sender] += value_eth
-                total_in[recipient] += value_eth
+                total_out[sender] += value
+                total_in[recipient] += value
                 tx_count[sender] += 1
                 tx_count[recipient] += 1
 
@@ -106,22 +119,35 @@ class GraphBuilder:
                     node_map[peer] = GraphNode(id=peer, address=peer, label=short_address(peer), hop=hop + 1)
                     queue.append((peer, hop + 1))
 
-                edge_id = f"{tx.get('hash', '')}:{sender}:{recipient}"
+                edge_token = (tx.get("contract_address") or token_address or "").lower()
+                edge_id = f"{tx.get('hash', '')}:{sender}:{recipient}:{edge_token}"
                 if edge_id not in edge_map:
+                    metadata = {
+                        "block_number": tx.get("block_number", ""),
+                        "is_error": tx.get("is_error", "0"),
+                        "source": tx.get("source", "etherscan"),
+                        "asset_symbol": tx_asset_symbol,
+                        "asset_type": "erc20" if token_address else "native",
+                    }
+                    if token_address:
+                        metadata.update(
+                            {
+                                "token_address": edge_token,
+                                "token_name": tx.get("token_name", ""),
+                                "token_decimal": tx.get("token_decimal"),
+                                "value_token": value,
+                            }
+                        )
                     edge_map[edge_id] = GraphEdge(
                         id=edge_id,
                         source=sender,
                         target=recipient,
                         tx_hash=tx.get("hash", ""),
                         timestamp=timestamp,
-                        value_eth=value_eth,
+                        value_eth=value,
                         hop=hop + 1,
                         direction="out" if sender == address else "in",
-                        metadata={
-                            "block_number": tx.get("block_number", ""),
-                            "is_error": tx.get("is_error", "0"),
-                            "source": tx.get("source", "etherscan"),
-                        },
+                        metadata=metadata,
                     )
 
         graph = InvestigationGraph(

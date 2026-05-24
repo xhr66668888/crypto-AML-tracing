@@ -44,7 +44,7 @@ fixes:
 These are owned by `qa-devops-engineer` and `aml-architect` jointly — see
 their sections below.
 
-## Per-subagent findings
+## Per-role findings
 
 Each section begins with a one-line verdict, lists the round-one required
 changes, and ends with the acceptance command that must be green before
@@ -260,8 +260,8 @@ Required changes (blocking):
    `raindrop_scorer.py`), and update
    [`docs/architecture.md`](architecture.md) and
    [`docs/contract-changelog.md`](contract-changelog.md) to match.
-4. Update `.opencode/agents/raindrop-ml-engineer.md` to document the single
-   canonical return type (already partially patched in this commit).
+4. Document the single canonical return type in the live ownership and
+   architecture docs.
 
 Acceptance command:
 
