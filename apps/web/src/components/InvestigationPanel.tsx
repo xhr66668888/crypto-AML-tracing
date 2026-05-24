@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Play, Loader2, AlertTriangle, GitBranch, BarChart3, FileText, ListChecks } from "lucide-react";
-import type { InvestigationRecord, InvestigationGraph, RiskResponse, GraphNode } from "../types";
+import type { InvestigationRecord, InvestigationGraph, RiskResponse, GraphNode, ChainInfo, AssetSymbol } from "../types";
 import { request } from "../api";
 import { RiskSummary } from "./RiskSummary";
 import { GraphView } from "./GraphView";
@@ -19,8 +19,11 @@ const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
   { id: "report", label: "Report", icon: <FileText size={16} /> }
 ];
 
-export function InvestigationPanel() {
+export function InvestigationPanel({ chains }: { chains: ChainInfo[] }) {
   const [target, setTarget] = useState(DEMO_TARGET);
+  const [chainId, setChainId] = useState("1");
+  const [asset, setAsset] = useState<AssetSymbol>("ETH");
+  const [tokenContract, setTokenContract] = useState("");
   const [depth, setDepth] = useState(3);
   const [mode, setMode] = useState<"stable" | "experimental">("stable");
   const [activeTab, setActiveTab] = useState<TabId>("overview");
@@ -29,9 +32,22 @@ export function InvestigationPanel() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  const currentChain = chains.find((chain) => chain.chain_id === chainId) ?? chains[0];
+  const assetOptions = Array.from(new Set([...(currentChain?.assets ?? ["ETH", "USDC", "USDT"]), "ERC20"])) as AssetSymbol[];
+
+  useEffect(() => {
+    if (asset !== "ERC20" && !assetOptions.includes(asset)) {
+      setAsset((currentChain?.native_asset as AssetSymbol) ?? "ETH");
+    }
+  }, [asset, assetOptions, currentChain?.native_asset]);
+
   async function runInvestigation() {
     if (!target.trim()) {
       setError("Enter an address or transaction hash to investigate.");
+      return;
+    }
+    if (asset === "ERC20" && !tokenContract.trim()) {
+      setError("Token contract is required for custom ERC-20 investigation.");
       return;
     }
     setLoading(true);
@@ -39,7 +55,14 @@ export function InvestigationPanel() {
     try {
       const created = await request<InvestigationRecord>("/api/v1/investigations", {
         method: "POST",
-        body: JSON.stringify({ target: target.trim(), depth, mode, chain_id: "1" })
+        body: JSON.stringify({
+          target: target.trim(),
+          depth,
+          mode,
+          chain_id: chainId,
+          asset,
+          token_contract_address: asset === "ERC20" ? tokenContract.trim() : undefined
+        })
       });
       const graph = await request<InvestigationGraph>(
         `/api/v1/investigations/${created.status.id}/graph`
@@ -72,6 +95,37 @@ export function InvestigationPanel() {
             placeholder="0x..."
           />
         </label>
+        <label>
+          <span>Chain</span>
+          <select value={chainId} onChange={(e) => setChainId(e.target.value)}>
+            {chains.map((chain) => (
+              <option value={chain.chain_id} key={chain.chain_id}>
+                {chain.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>Asset</span>
+          <select value={asset} onChange={(e) => setAsset(e.target.value as AssetSymbol)}>
+            {assetOptions.map((option) => (
+              <option value={option} key={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+        </label>
+        {asset === "ERC20" && (
+          <label className="wide-field">
+            <span>Token contract</span>
+            <input
+              value={tokenContract}
+              onChange={(e) => setTokenContract(e.target.value)}
+              spellCheck={false}
+              placeholder="0x..."
+            />
+          </label>
+        )}
         <label>
           <span>Depth</span>
           <select value={depth} onChange={(e) => setDepth(Number(e.target.value))}>

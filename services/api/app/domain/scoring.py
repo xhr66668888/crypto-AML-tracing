@@ -103,7 +103,9 @@ class RiskScoringEngine:
             source_risk = nodes.get(edge.source).risk_score if nodes.get(edge.source) else 0
             target_risk = nodes.get(edge.target).risk_score if nodes.get(edge.target) else 0
             if source_risk or target_risk:
-                exposure += min(4.0, edge.value_eth / 3.0)
+                amount = float(edge.amount if edge.amount is not None else edge.value_eth)
+                divisor = 5000.0 if edge.token_contract_address or edge.asset.upper() in {"USDT", "USDC", "ERC20"} else 3.0
+                exposure += min(4.0, amount / divisor)
         return min(20.0, exposure)
 
     @staticmethod

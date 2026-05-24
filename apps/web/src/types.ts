@@ -1,7 +1,16 @@
 export type RiskLevel = "low" | "medium" | "high" | "critical";
 export type RiskDisposition = "allow" | "review" | "hold_for_manual_review" | "reject";
 export type TransferDirection = "inbound" | "outbound";
-export type AssetSymbol = "ETH" | "USDT" | "USDC";
+export type AssetSymbol = "ETH" | "BNB" | "MATIC" | "USDT" | "USDC" | "ERC20";
+
+export interface ChainInfo {
+  chain_id: string;
+  name: string;
+  native_asset: string;
+  explorer_url: string;
+  assets: AssetSymbol[];
+  token_contracts: Record<string, string>;
+}
 
 export interface InvestigationRecord {
   status: InvestigationStatus;
@@ -14,6 +23,8 @@ export interface InvestigationStatus {
   target: string;
   target_type: "address" | "transaction_hash";
   chain_id: string;
+  asset: AssetSymbol;
+  token_contract_address?: string | null;
   depth: number;
   mode: "stable" | "experimental";
   status: string;
@@ -37,6 +48,9 @@ export interface GraphEdge {
   target: string;
   tx_hash: string;
   value_eth: number;
+  amount?: number | null;
+  asset: string;
+  token_contract_address?: string | null;
   hop: number;
 }
 
@@ -102,6 +116,7 @@ export interface ScreeningResponse {
   id: string;
   chain_id: string;
   asset: AssetSymbol;
+  token_contract_address?: string | null;
   direction: TransferDirection;
   from_address: string;
   to_address: string;

@@ -28,6 +28,8 @@ class InvestigationService:
                     chain_id=payload.chain_id,
                     depth=payload.depth,
                     mode=payload.mode,
+                    asset=payload.asset.value,
+                    token_contract_address=payload.token_contract_address,
                 )
             else:
                 result = await self.graph_builder.build_from_transaction_hash(
@@ -36,6 +38,8 @@ class InvestigationService:
                     chain_id=payload.chain_id,
                     depth=payload.depth,
                     mode=payload.mode,
+                    asset=payload.asset.value,
+                    token_contract_address=payload.token_contract_address,
                 )
             risk = await self.scoring.score_graph(
                 record.status.id,

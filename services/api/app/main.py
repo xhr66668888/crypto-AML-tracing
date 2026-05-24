@@ -3,10 +3,18 @@ from __future__ import annotations
 import csv
 import io
 import json
+import time
+from collections import defaultdict, deque
+from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from app.connectors.base import ConnectorError
 from app.connectors.etherscan import EtherscanClient
 from app.connectors.goplus import GoPlusClient
 from app.core.config import get_settings
@@ -20,6 +28,7 @@ from app.domain.models import (
     WatchlistImportRequest,
     WatchlistImportResult,
     WatchlistImportError,
+    chain_infos,
 )
 from app.domain.patterns import PatternAnalyzer
 from app.domain.risk_intel import RiskIntelAggregator
@@ -58,17 +67,136 @@ reporter = ReportGenerator(deepseek=DeepSeekClient(api_key=settings.deepseek_api
 
 app = FastAPI(title=settings.app_name, version="0.1.0")
 app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=list(settings.trusted_hosts),
+    www_redirect=False,
+)
+app.add_middleware(
     CORSMiddleware,
     allow_origins=list(settings.cors_origins),
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "X-API-Key"],
 )
+
+_rate_limit_state: dict[str, deque[float]] = defaultdict(deque)
+
+
+@app.middleware("http")
+async def security_middleware(request: Request, call_next):
+    content_length = request.headers.get("content-length")
+    if content_length and content_length.isdigit() and int(content_length) > settings.max_request_body_bytes:
+        return _error_response(
+            status_code=413,
+            code="request_too_large",
+            message="Request body is too large.",
+            category="validation",
+        )
+
+    if request.url.path.startswith("/api/v1") and request.method != "OPTIONS":
+        api_key = request.headers.get("x-api-key", "")
+        if settings.api_auth_enabled and api_key not in settings.api_keys:
+            return _error_response(
+                status_code=401,
+                code="unauthorized",
+                message="Valid X-API-Key header is required.",
+                category="validation",
+            )
+        limited = _rate_limited(api_key or request.client.host if request.client else "unknown")
+        if limited:
+            return _error_response(
+                status_code=429,
+                code="rate_limited",
+                message="Too many requests. Please retry later.",
+                category="validation",
+                retryable=True,
+            )
+
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    response.headers["Content-Security-Policy"] = "default-src 'self'; frame-ancestors 'none'"
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(_request: Request, exc: RequestValidationError):
+    details = {"errors": [_plain_validation_error(error) for error in exc.errors()[:8]]}
+    return _error_response(
+        status_code=400,
+        code="validation_error",
+        message="Request validation failed.",
+        category="validation",
+        details=details,
+    )
+
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(_request: Request, exc: StarletteHTTPException):
+    category = "validation"
+    code = "http_error"
+    if exc.status_code == 404:
+        category = "not_found"
+        code = "not_found"
+    elif exc.status_code == 409:
+        category = "conflict"
+        code = "conflict"
+    elif exc.status_code == 401:
+        code = "unauthorized"
+    elif exc.status_code == 429:
+        code = "rate_limited"
+    return _error_response(
+        status_code=exc.status_code,
+        code=code,
+        message=str(exc.detail),
+        category=category,
+        retryable=exc.status_code in {429, 502, 503, 504},
+    )
+
+
+@app.exception_handler(ConnectorError)
+async def connector_exception_handler(_request: Request, exc: ConnectorError):
+    return _error_response(
+        status_code=502,
+        code="upstream_provider_error",
+        message=f"{exc.provider} provider is unavailable.",
+        category="upstream",
+        retryable=exc.retryable,
+        details={"provider": exc.provider, "status_code": exc.status_code},
+    )
+
+
+@app.exception_handler(ValueError)
+async def value_error_handler(_request: Request, exc: ValueError):
+    return _error_response(
+        status_code=400,
+        code="validation_error",
+        message=str(exc),
+        category="validation",
+    )
+
+
+@app.exception_handler(Exception)
+async def internal_exception_handler(_request: Request, _exc: Exception):
+    return _error_response(
+        status_code=500,
+        code="internal_error",
+        message="Internal server error.",
+        category="internal",
+    )
 
 
 @app.get("/health")
 async def health() -> dict[str, str | bool]:
-    return {"status": "ok", "demo_mode": settings.demo_mode}
+    return {"status": "ok", "demo_mode": settings.demo_mode, "version": "0.1.0"}
+
+
+@app.get("/api/v1/chains")
+async def list_chains():
+    return chain_infos()
 
 
 @app.post("/api/v1/investigations")
@@ -199,6 +327,56 @@ def _ingest_watchlist_row(row: dict, default_category: str, default_severity: st
 async def list_reports(investigation_id: str):
     record = _get_record(investigation_id)
     return record.reports
+
+
+def _rate_limited(key: str) -> bool:
+    if settings.rate_limit_per_minute <= 0:
+        return False
+    now = time.monotonic()
+    window_start = now - 60
+    bucket = _rate_limit_state[key]
+    while bucket and bucket[0] < window_start:
+        bucket.popleft()
+    if len(bucket) >= settings.rate_limit_per_minute:
+        return True
+    bucket.append(now)
+    return False
+
+
+def _plain_validation_error(error: dict) -> dict[str, str]:
+    loc = ".".join(str(part) for part in error.get("loc", []))
+    return {"field": loc, "message": str(error.get("msg", "invalid value"))}
+
+
+def _error_response(
+    *,
+    status_code: int,
+    code: str,
+    message: str,
+    category: str,
+    retryable: bool = False,
+    details: dict | None = None,
+) -> JSONResponse:
+    response = JSONResponse(
+        status_code=status_code,
+        content={
+            "error": {
+                "code": code,
+                "message": message,
+                "category": category,
+                "retryable": retryable,
+                "details": details or {},
+                "trace_id": str(uuid4()),
+            }
+        },
+    )
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    response.headers["Content-Security-Policy"] = "default-src 'self'; frame-ancestors 'none'"
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 def _get_record(investigation_id: str):

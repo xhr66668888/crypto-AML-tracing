@@ -196,7 +196,7 @@ class RaindropAmlScorer:
             )
         if value >= 40:
             drivers.append(
-                f"Value dispersion: total {f['total_value']:.4f} ETH, "
+                f"Value dispersion: total {f['total_value']:.4f} asset units, "
                 f"variance {f['value_variance']:.4f}"
             )
         if depth >= 40:

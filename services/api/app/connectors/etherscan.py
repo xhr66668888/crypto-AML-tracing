@@ -83,18 +83,25 @@ class EtherscanClient:
     # Public API
     # ------------------------------------------------------------------
 
-    async def get_transactions(self, address: str, page: int = 1, offset: int = 25) -> list[dict[str, Any]]:
+    async def get_transactions(
+        self,
+        address: str,
+        page: int = 1,
+        offset: int = 25,
+        chain_id: str | None = None,
+    ) -> list[dict[str, Any]]:
         """Fetch normal transactions for *address* (paginated)."""
+        requested_chain_id = chain_id or self.chain_id
         if self.demo_mode or not self.api_key:
-            return self._demo_transactions(address, page=page, offset=min(offset, 8))
+            return self._demo_transactions(address, page=page, offset=min(offset, 8), chain_id=requested_chain_id)
 
-        cache_key = f"txlist:{address}:{page}:{offset}"
+        cache_key = f"txlist:{requested_chain_id}:{address}:{page}:{offset}"
         cached = self._cache.get(cache_key)
         if cached is not None:
             return cached
 
         params = {
-            "chainid": self.chain_id,
+            "chainid": requested_chain_id,
             "module": "account",
             "action": "txlist",
             "address": address,
@@ -109,6 +116,53 @@ class EtherscanClient:
         result = payload.get("result", [])
         if isinstance(result, list):
             normalised = [self._normalize_tx(tx) for tx in result]
+        else:
+            normalised = []
+        self._cache.set(cache_key, normalised)
+        return normalised
+
+    async def get_token_transfers(
+        self,
+        address: str,
+        chain_id: str,
+        token_contract_address: str | None = None,
+        page: int = 1,
+        offset: int = 25,
+    ) -> list[dict[str, Any]]:
+        """Fetch ERC-20 token transfers for *address*, optionally scoped to a contract."""
+        if self.demo_mode or not self.api_key:
+            return self._demo_token_transfers(
+                address,
+                chain_id=chain_id,
+                token_contract_address=token_contract_address,
+                page=page,
+                offset=min(offset, 8),
+            )
+
+        contract = token_contract_address.lower() if token_contract_address else ""
+        cache_key = f"tokentx:{chain_id}:{address}:{contract}:{page}:{offset}"
+        cached = self._cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        params = {
+            "chainid": chain_id,
+            "module": "account",
+            "action": "tokentx",
+            "address": address,
+            "startblock": 0,
+            "endblock": 999999999,
+            "page": page,
+            "offset": offset,
+            "sort": "desc",
+            "apikey": self.api_key,
+        }
+        if contract:
+            params["contractaddress"] = contract
+        payload = await self._get(params)
+        result = payload.get("result", [])
+        if isinstance(result, list):
+            normalised = [self._normalize_token_tx(tx) for tx in result]
         else:
             normalised = []
         self._cache.set(cache_key, normalised)
@@ -142,6 +196,32 @@ class EtherscanClient:
         }
         self._cache.set(cache_key, detail)
         return detail
+
+    async def get_internal_transactions(self, tx_hash: str) -> list[dict[str, Any]]:
+        """Fetch internal (trace) transactions for a parent tx hash."""
+        if self.demo_mode or not self.api_key:
+            return self._demo_internal_transactions(tx_hash)
+
+        cache_key = f"txinternal:{tx_hash}"
+        cached = self._cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        params = {
+            "chainid": self.chain_id,
+            "module": "account",
+            "action": "txlistinternal",
+            "txhash": tx_hash,
+            "apikey": self.api_key,
+        }
+        payload = await self._get(params)
+        result = payload.get("result", [])
+        if isinstance(result, list):
+            normalised = [self._normalize_internal(tx) for tx in result]
+        else:
+            normalised = []
+        self._cache.set(cache_key, normalised)
+        return normalised
 
     # ------------------------------------------------------------------
     # HTTP with retries
@@ -197,7 +277,7 @@ class EtherscanClient:
                     )
                 return payload
 
-            except httpx.TimeoutException:
+            except httpx.TimeoutException as exc:
                 last_exc = ConnectorError(
                     provider=PROVIDER,
                     status_code=None,
@@ -227,11 +307,11 @@ class EtherscanClient:
     # Demo fixtures
     # ------------------------------------------------------------------
 
-    def _demo_transactions(self, address: str, page: int, offset: int) -> list[dict[str, Any]]:
-        base = int(hashlib.sha256(address.encode()).hexdigest()[:8], 16)
+    def _demo_transactions(self, address: str, page: int, offset: int, chain_id: str = "1") -> list[dict[str, Any]]:
+        base = int(hashlib.sha256(f"{chain_id}:{address}".encode()).hexdigest()[:8], 16)
         transactions: list[dict[str, Any]] = []
         for idx in range(offset):
-            peer = _demo_address(address, page * 100 + idx)
+            peer = _demo_address(f"{chain_id}:{address}", page * 100 + idx)
             outgoing = (base + idx) % 2 == 0
             timestamp = int(time.time()) - ((page - 1) * offset + idx + 1) * 7200
             value = round(((base % 19) + idx + 1) / 3.7, 5)
@@ -241,10 +321,68 @@ class EtherscanClient:
                     "from": address.lower() if outgoing else peer,
                     "to": peer if outgoing else address.lower(),
                     "value_eth": value,
+                    "amount": value,
+                    "asset": "ETH",
+                    "token_contract_address": None,
                     "timestamp": timestamp,
                     "block_number": str(19000000 + idx),
                     "is_error": "0",
                     "source": "demo",
+                    "chain_id": chain_id,
+                }
+            )
+        return transactions
+
+    def _demo_token_transfers(
+        self,
+        address: str,
+        chain_id: str,
+        token_contract_address: str | None,
+        page: int,
+        offset: int,
+    ) -> list[dict[str, Any]]:
+        contract_seed = token_contract_address or "erc20"
+        base = int(hashlib.sha256(f"token:{chain_id}:{contract_seed}:{address}".encode()).hexdigest()[:8], 16)
+        symbol = "ERC20"
+        if token_contract_address:
+            contract_lower = token_contract_address.lower()
+            if contract_lower in {
+                "0xdac17f958d2ee523a2206206994597c13d831ec7",
+                "0x55d398326f99059ff775485246999027b3197955",
+                "0xc2132d05d31c914a87c6611c10748aeb04b58e8f",
+                "0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9",
+                "0x94b008aa00579c1307b0ef2c499ad98a8ce58e58",
+            }:
+                symbol = "USDT"
+            elif contract_lower in {
+                "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+                "0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d",
+                "0x3c499c542cef5e3811e1192ce70d8cc03d5c3359",
+                "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
+                "0x0b2c639c533813f4aa9d7837caf62653d097ff85",
+                "0x833589fcd6edb6e08f4c7c32d4f71b54bdA02913".lower(),
+            }:
+                symbol = "USDC"
+        transactions: list[dict[str, Any]] = []
+        for idx in range(offset):
+            peer = _demo_address(f"token:{chain_id}:{address}", page * 100 + idx)
+            outgoing = (base + idx) % 2 == 0
+            timestamp = int(time.time()) - ((page - 1) * offset + idx + 1) * 5400
+            amount = round(((base % 23) + idx + 1) * 137.25, 6)
+            transactions.append(
+                {
+                    "hash": _demo_hash(f"token:{chain_id}:{address}", page * 100 + idx),
+                    "from": address.lower() if outgoing else peer,
+                    "to": peer if outgoing else address.lower(),
+                    "value_eth": 0.0,
+                    "amount": amount,
+                    "asset": symbol,
+                    "token_contract_address": token_contract_address.lower() if token_contract_address else None,
+                    "timestamp": timestamp,
+                    "block_number": str(19000000 + idx),
+                    "is_error": "0",
+                    "source": "demo-token",
+                    "chain_id": chain_id,
                 }
             )
         return transactions
@@ -255,9 +393,36 @@ class EtherscanClient:
             "from": _demo_address(tx_hash, 1),
             "to": _demo_address(tx_hash, 2),
             "value_eth": 4.2,
+            "amount": 4.2,
+            "asset": "ETH",
+            "token_contract_address": None,
             "timestamp": int(time.time()) - 3600,
             "source": "demo",
         }
+
+    def _demo_internal_transactions(self, tx_hash: str) -> list[dict[str, Any]]:
+        """Deterministic internal transactions for demo mode."""
+        base = int(hashlib.sha256(f"internal:{tx_hash}".encode()).hexdigest()[:8], 16)
+        count = (base % 3) + 1  # 1-3 internal txs
+        result: list[dict[str, Any]] = []
+        for idx in range(count):
+            value = round(((base + idx) % 7 + 1) / 10.0, 5)
+            result.append(
+                {
+                    "hash": tx_hash,
+                    "from": _demo_address(tx_hash, idx + 10),
+                    "to": _demo_address(tx_hash, idx + 20),
+                    "value_eth": value,
+                    "amount": value,
+                    "asset": "ETH",
+                    "token_contract_address": None,
+                    "timestamp": int(time.time()) - 3600 - idx * 60,
+                    "block_number": str(19000000 + idx),
+                    "is_error": "0",
+                    "source": "demo",
+                }
+            )
+        return result
 
     # ------------------------------------------------------------------
     # Normalisation
@@ -275,10 +440,58 @@ class EtherscanClient:
             "from": (tx.get("from") or "").lower(),
             "to": (tx.get("to") or "").lower(),
             "value_eth": value_eth,
+            "amount": value_eth,
+            "asset": "ETH",
+            "token_contract_address": None,
             "timestamp": int(tx.get("timeStamp") or 0),
             "block_number": tx.get("blockNumber", ""),
             "is_error": tx.get("isError", "0"),
             "source": "etherscan",
         }
 
+    @staticmethod
+    def _normalize_token_tx(tx: dict[str, Any]) -> dict[str, Any]:
+        value_raw = tx.get("value") or "0"
+        decimals_raw = tx.get("tokenDecimal") or "0"
+        try:
+            decimals = int(decimals_raw)
+            amount = int(value_raw) / (10 ** decimals)
+        except (TypeError, ValueError, OverflowError):
+            amount = 0.0
+        symbol = (tx.get("tokenSymbol") or "ERC20").upper()
+        return {
+            "hash": tx.get("hash", ""),
+            "from": (tx.get("from") or "").lower(),
+            "to": (tx.get("to") or "").lower(),
+            "value_eth": 0.0,
+            "amount": amount,
+            "asset": symbol,
+            "token_contract_address": (tx.get("contractAddress") or "").lower() or None,
+            "timestamp": int(tx.get("timeStamp") or 0),
+            "block_number": tx.get("blockNumber", ""),
+            "is_error": "0",
+            "source": "etherscan-token",
+            "token_name": tx.get("tokenName", ""),
+            "token_decimal": decimals_raw,
+        }
 
+    @staticmethod
+    def _normalize_internal(tx: dict[str, Any]) -> dict[str, Any]:
+        value_raw = tx.get("value") or "0"
+        try:
+            value_eth = int(value_raw) / 1e18
+        except (TypeError, ValueError):
+            value_eth = 0.0
+        return {
+            "hash": tx.get("hash", ""),
+            "from": (tx.get("from") or "").lower(),
+            "to": (tx.get("to") or "").lower(),
+            "value_eth": value_eth,
+            "amount": value_eth,
+            "asset": "ETH",
+            "token_contract_address": None,
+            "timestamp": int(tx.get("timeStamp") or 0),
+            "block_number": tx.get("blockNumber", ""),
+            "is_error": tx.get("isError", "0"),
+            "source": "etherscan-internal",
+        }

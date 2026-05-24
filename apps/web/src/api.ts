@@ -1,4 +1,5 @@
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
+const API_KEY = import.meta.env.VITE_API_KEY ?? "";
 
 const MAX_RETRIES = 2;
 const RETRY_DELAY_MS = 1000;
@@ -44,13 +45,23 @@ export async function request<T>(path: string, options: RequestInit = {}): Promi
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
       const response = await fetch(`${API_BASE}${path}`, {
-        headers: { "Content-Type": "application/json", ...(options.headers ?? {}) },
+        headers: {
+          "Content-Type": "application/json",
+          ...(API_KEY ? { "X-API-Key": API_KEY } : {}),
+          ...(options.headers ?? {})
+        },
         ...options
       });
       if (!response.ok) {
         let message: string;
         try {
-          message = await response.text();
+          const text = await response.text();
+          try {
+            const parsed = JSON.parse(text);
+            message = parsed?.error?.message ?? text;
+          } catch {
+            message = text || response.statusText;
+          }
         } catch {
           message = response.statusText;
         }

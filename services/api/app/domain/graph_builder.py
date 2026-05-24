@@ -4,6 +4,7 @@ from collections import Counter, defaultdict, deque
 from dataclasses import dataclass
 
 from app.connectors.etherscan import EtherscanClient
+from app.domain.chains import get_chain, resolve_token_contract
 from app.domain.models import GraphEdge, GraphNode, InvestigationGraph, InvestigationMode
 from app.domain.validators import normalize_address
 
@@ -43,7 +44,13 @@ class GraphBuilder:
         chain_id: str,
         depth: int,
         mode: InvestigationMode,
+        asset: str | None = None,
+        token_contract_address: str | None = None,
     ) -> GraphBuildResult:
+        chain = get_chain(chain_id)
+        asset_symbol = (asset or chain.native_asset).upper()
+        token_contract = resolve_token_contract(chain_id, asset_symbol, token_contract_address)
+        use_token_transfers = token_contract is not None or asset_symbol == "ERC20"
         max_nodes = self.max_experimental_nodes if mode == InvestigationMode.experimental else self.max_stable_nodes
         max_txs_per_address = 10 if mode == InvestigationMode.experimental else 6
         max_hops = 5 if mode == InvestigationMode.experimental else 3
@@ -73,7 +80,19 @@ class GraphBuilder:
                 continue
             visited.add(address)
 
-            txs = await self.etherscan.get_transactions(address, offset=max_txs_per_address)
+            if use_token_transfers:
+                txs = await self.etherscan.get_token_transfers(
+                    address,
+                    chain_id=chain_id,
+                    token_contract_address=token_contract,
+                    offset=max_txs_per_address,
+                )
+            else:
+                txs = await self.etherscan.get_transactions(
+                    address,
+                    chain_id=chain_id,
+                    offset=max_txs_per_address,
+                )
             raw_transactions.extend(txs)
 
             for tx in txs:
@@ -84,10 +103,13 @@ class GraphBuilder:
 
                 timestamp = int(tx.get("timestamp") or 0)
                 value_eth = float(tx.get("value_eth") or 0)
+                amount = float(tx.get("amount") if tx.get("amount") is not None else value_eth)
+                tx_asset = str(tx.get("asset") or asset_symbol)
+                tx_token_contract = tx.get("token_contract_address") or token_contract
 
                 # Update aggregation counters
-                total_out[sender] += value_eth
-                total_in[recipient] += value_eth
+                total_out[sender] += amount
+                total_in[recipient] += amount
                 tx_count[sender] += 1
                 tx_count[recipient] += 1
 
@@ -115,12 +137,16 @@ class GraphBuilder:
                         tx_hash=tx.get("hash", ""),
                         timestamp=timestamp,
                         value_eth=value_eth,
+                        amount=amount,
+                        asset=tx_asset,
+                        token_contract_address=tx_token_contract,
                         hop=hop + 1,
                         direction="out" if sender == address else "in",
                         metadata={
                             "block_number": tx.get("block_number", ""),
                             "is_error": tx.get("is_error", "0"),
                             "source": tx.get("source", "etherscan"),
+                            "chain_id": chain_id,
                         },
                     )
 
@@ -145,12 +171,22 @@ class GraphBuilder:
         chain_id: str,
         depth: int,
         mode: InvestigationMode,
+        asset: str | None = None,
+        token_contract_address: str | None = None,
     ) -> GraphBuildResult:
         tx = await self.etherscan.get_transaction_details(tx_hash)
         root = tx.get("from") or tx.get("to")
         if not root:
             raise ValueError("Transaction did not return a usable sender or recipient.")
-        result = await self.build_from_address(investigation_id, root, chain_id=chain_id, depth=depth, mode=mode)
+        result = await self.build_from_address(
+            investigation_id,
+            root,
+            chain_id=chain_id,
+            depth=depth,
+            mode=mode,
+            asset=asset,
+            token_contract_address=token_contract_address,
+        )
         source = tx.get("from", "").lower()
         target = tx.get("to", "").lower()
         if source and target:
@@ -170,9 +206,12 @@ class GraphBuilder:
                         tx_hash=tx_hash,
                         timestamp=int(tx.get("timestamp") or 0),
                         value_eth=float(tx.get("value_eth") or 0),
+                        amount=float(tx.get("amount") if tx.get("amount") is not None else tx.get("value_eth") or 0),
+                        asset=str(tx.get("asset") or asset or get_chain(chain_id).native_asset),
+                        token_contract_address=tx.get("token_contract_address") or token_contract_address,
                         hop=0,
                         direction="target",
-                        metadata={"source": "target_tx"},
+                        metadata={"source": "target_tx", "chain_id": chain_id},
                     ),
                 )
         return result
@@ -210,7 +249,9 @@ class GraphBuilder:
                 "tx_hash": edge.tx_hash,
                 "from": edge.source,
                 "to": edge.target,
-                "value": edge.value_eth,
+                "value": edge.amount if edge.amount is not None else edge.value_eth,
+                "asset": edge.asset,
+                "token_contract_address": edge.token_contract_address,
                 "timestamp": edge.timestamp,
                 "block_number": edge.metadata.get("block_number", ""),
             })
@@ -220,7 +261,7 @@ class GraphBuilder:
             "node_count": len(nodes),
             "edge_count": len(edges),
             "max_hop": max_hop,
-            "total_value_eth": round(sum(e.value_eth for e in edge_map.values()), 8),
+            "total_value": round(sum((e.amount if e.amount is not None else e.value_eth) for e in edge_map.values()), 8),
         }
 
         return GraphData(nodes=nodes, edges=edges, metadata=metadata)

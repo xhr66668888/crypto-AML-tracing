@@ -44,6 +44,8 @@ class InMemoryStore(StorageAdapter):
             target=payload.target.lower(),
             target_type=target_type,
             chain_id=payload.chain_id,
+            asset=payload.asset,
+            token_contract_address=payload.token_contract_address,
             depth=payload.depth,
             mode=payload.mode,
             status="running",

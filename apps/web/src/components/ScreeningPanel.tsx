@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Shield, Play, Loader2, AlertTriangle } from "lucide-react";
 import type {
   ScreeningResponse,
@@ -6,22 +6,34 @@ import type {
   TransferDirection,
   Finding,
   PatternSignal,
-  SourceHit
+  SourceHit,
+  ChainInfo
 } from "../types";
 import { request, compactAddress } from "../api";
 
 const DEMO_FROM = "0x8a5847fd0e592b058c026c5fdc322aee834b87f5";
 const DEMO_TO = "0x1111111111111111111111111111111111111111";
 
-export function ScreeningPanel() {
+export function ScreeningPanel({ chains }: { chains: ChainInfo[] }) {
   const [fromAddress, setFromAddress] = useState(DEMO_FROM);
   const [toAddress, setToAddress] = useState(DEMO_TO);
   const [amount, setAmount] = useState("9500");
+  const [chainId, setChainId] = useState("1");
   const [asset, setAsset] = useState<AssetSymbol>("USDC");
+  const [tokenContract, setTokenContract] = useState("");
   const [direction, setDirection] = useState<TransferDirection>("outbound");
   const [result, setResult] = useState<ScreeningResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  const currentChain = chains.find((chain) => chain.chain_id === chainId) ?? chains[0];
+  const assetOptions = Array.from(new Set([...(currentChain?.assets ?? ["ETH", "USDC", "USDT"]), "ERC20"])) as AssetSymbol[];
+
+  useEffect(() => {
+    if (asset !== "ERC20" && !assetOptions.includes(asset)) {
+      setAsset((currentChain?.native_asset as AssetSymbol) ?? "ETH");
+    }
+  }, [asset, assetOptions, currentChain?.native_asset]);
 
   async function runScreening() {
     const amountNum = Number(amount);
@@ -37,14 +49,19 @@ export function ScreeningPanel() {
       setError("To address is required.");
       return;
     }
+    if (asset === "ERC20" && !tokenContract.trim()) {
+      setError("Token contract is required for custom ERC-20 screening.");
+      return;
+    }
     setLoading(true);
     setError("");
     try {
       const data = await request<ScreeningResponse>("/api/v1/screening/transactions", {
         method: "POST",
         body: JSON.stringify({
-          chain_id: "1",
+          chain_id: chainId,
           asset,
+          token_contract_address: asset === "ERC20" ? tokenContract.trim() : undefined,
           direction,
           from_address: fromAddress.trim(),
           to_address: toAddress.trim(),
@@ -67,7 +84,7 @@ export function ScreeningPanel() {
             <Shield size={18} />
             Pre-withdrawal Screening
           </div>
-          <p>Live transfer control — ETH / USDT / USDC</p>
+          <p>Live transfer control across supported EVM chains</p>
         </div>
         <button className="primary-button" onClick={runScreening} disabled={loading}>
           {loading ? <Loader2 className="spin" size={18} /> : <Play size={18} />}
@@ -75,6 +92,26 @@ export function ScreeningPanel() {
         </button>
       </div>
       <div className="screening-grid">
+        <label>
+          <span>Chain</span>
+          <select value={chainId} onChange={(e) => setChainId(e.target.value)}>
+            {chains.map((chain) => (
+              <option value={chain.chain_id} key={chain.chain_id}>
+                {chain.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>Asset</span>
+          <select value={asset} onChange={(e) => setAsset(e.target.value as AssetSymbol)}>
+            {assetOptions.map((option) => (
+              <option value={option} key={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+        </label>
         <label>
           <span>From address</span>
           <input
@@ -94,14 +131,6 @@ export function ScreeningPanel() {
           />
         </label>
         <label>
-          <span>Asset</span>
-          <select value={asset} onChange={(e) => setAsset(e.target.value as AssetSymbol)}>
-            <option value="ETH">ETH</option>
-            <option value="USDT">USDT</option>
-            <option value="USDC">USDC</option>
-          </select>
-        </label>
-        <label>
           <span>Direction</span>
           <select value={direction} onChange={(e) => setDirection(e.target.value as TransferDirection)}>
             <option value="outbound">Outbound</option>
@@ -112,6 +141,17 @@ export function ScreeningPanel() {
           <span>Amount</span>
           <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" />
         </label>
+        {asset === "ERC20" && (
+          <label className="wide-field">
+            <span>Token contract</span>
+            <input
+              value={tokenContract}
+              onChange={(e) => setTokenContract(e.target.value)}
+              spellCheck={false}
+              placeholder="0x..."
+            />
+          </label>
+        )}
       </div>
       {error && (
         <div className="inline-error">
@@ -151,6 +191,7 @@ function ScreeningResult({ result }: { result: ScreeningResponse }) {
         </div>
         <div className="tag-row">
           <span className="tag">{result.asset}</span>
+          <span className="tag">chain {result.chain_id}</span>
           <span className="tag">{result.direction}</span>
           <span className="tag">{result.amount.toLocaleString()}</span>
         </div>

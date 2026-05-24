@@ -56,7 +56,7 @@ export function GraphView({
             id: edge.id,
             source: edge.source,
             target: edge.target,
-            label: `${edge.value_eth.toFixed(2)} ETH`
+            label: `${(edge.amount ?? edge.value_eth).toFixed(2)} ${edge.asset ?? "ETH"}`
           }
         }))
       ];
@@ -84,7 +84,7 @@ export function GraphView({
               label: "data(label)",
               color: "#0e0f0c",
               "font-size": 11,
-              "font-family": "OPPO Sans, Inter, system-ui, sans-serif",
+              "font-family": "OPPO Sans",
               "font-weight": 600,
               "text-valign": "bottom",
               "text-margin-y": 8,
@@ -127,7 +127,7 @@ export function GraphView({
               label: "data(label)",
               color: "#454745",
               "font-size": 9,
-              "font-family": "OPPO Sans, Inter, system-ui, sans-serif",
+              "font-family": "OPPO Sans",
               "text-background-color": "#ffffff",
               "text-background-opacity": 0.9,
               "text-background-padding": "3px"

@@ -219,8 +219,7 @@ class PatternAnalyzer:
     # Detector 2: Aggregation
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _aggregation(edges: list[GraphEdge]) -> list[PatternSignal]:
+    def _aggregation(self, edges: list[GraphEdge]) -> list[PatternSignal]:
         """Detect fan-in: many small inputs consolidating into one address.
 
         Triggered when an address receives from >= 4 distinct sources.
@@ -229,7 +228,7 @@ class PatternAnalyzer:
         totals: Counter[str] = Counter()
         for edge in edges:
             inbound[edge.target].add(edge.source)
-            totals[edge.target] += edge.value_eth
+            totals[edge.target] += self._edge_amount(edge)
 
         signals: list[PatternSignal] = []
         for target, sources in sorted(inbound.items()):
@@ -241,9 +240,12 @@ class PatternAnalyzer:
                         severity=RiskLevel.high if score >= 65 else RiskLevel.medium,
                         score=round(score, 2),
                         subject=target,
-                        evidence=f"{len(sources)} source addresses aggregate {totals[target]:.4g} ETH into one address.",
+                        evidence=(
+                            f"{len(sources)} source addresses aggregate {totals[target]:.4g} "
+                            f"{self._asset_label(edges)} into one address."
+                        ),
                         confidence=0.76,
-                        metadata={"source_count": len(sources), "total_value_eth": round(totals[target], 8)},
+                        metadata={"source_count": len(sources), "total_value": round(totals[target], 8)},
                     )
                 )
         return signals
@@ -268,7 +270,7 @@ class PatternAnalyzer:
         for source in sorted(outgoing):
             source_edges = outgoing[source]
             ordered = sorted(source_edges, key=lambda item: item.timestamp)
-            values = [edge.value_eth for edge in ordered if edge.value_eth > 0]
+            values = [PatternAnalyzer._edge_amount(edge) for edge in ordered if PatternAnalyzer._edge_amount(edge) > 0]
             if len(values) < 4:
                 continue
 
@@ -293,7 +295,8 @@ class PatternAnalyzer:
                         subject=source,
                         evidence=(
                             f"Sequential outgoing transfers decrease across {unique_targets} counterparties; "
-                            f"first value {values[0]:.4g} ETH, last {values[-1]:.4g} ETH."
+                            f"first value {values[0]:.4g} {PatternAnalyzer._asset_label(source_edges)}, "
+                            f"last {values[-1]:.4g} {PatternAnalyzer._asset_label(source_edges)}."
                         ),
                         confidence=0.72 if strong else 0.65,
                         metadata={
@@ -314,14 +317,16 @@ class PatternAnalyzer:
     def _threshold_structuring(self, edges: list[GraphEdge]) -> list[PatternSignal]:
         """Detect multiple transactions just below reporting thresholds.
 
-        Looks for repeated transfers at 90-100% of configured ETH thresholds.
+        Looks for repeated transfers at 90-100% of configured native/token thresholds.
         """
         near_threshold: list[GraphEdge] = []
         threshold_hit: dict[str, float] = {}  # edge_id -> threshold
 
         for edge in edges:
-            for threshold in self.ETH_THRESHOLDS:
-                if threshold * 0.9 <= edge.value_eth < threshold:
+            thresholds = self.TOKEN_THRESHOLDS if self._is_token_edge(edge) else self.ETH_THRESHOLDS
+            amount = self._edge_amount(edge)
+            for threshold in thresholds:
+                if threshold * 0.9 <= amount < threshold:
                     near_threshold.append(edge)
                     threshold_hit[edge.id] = threshold
                     break
@@ -350,7 +355,10 @@ class PatternAnalyzer:
                 severity=RiskLevel.high if score >= 65 else RiskLevel.medium,
                 score=round(score, 2),
                 subject=subject,
-                evidence=f"{len(near_threshold)} transfers sit just below the {most_common_threshold:.4g} ETH review threshold.",
+                evidence=(
+                    f"{len(near_threshold)} transfers sit just below the {most_common_threshold:.4g} "
+                    f"{self._asset_label(near_threshold)} review threshold."
+                ),
                 confidence=0.76,
                 metadata={
                     "transfer_count": len(near_threshold),
@@ -368,10 +376,14 @@ class PatternAnalyzer:
     def _high_frequency_micro(edges: list[GraphEdge]) -> list[PatternSignal]:
         """Detect many small transactions in a short time period.
 
-        Triggered when >= 5 transfers with value <= 0.02 ETH occur within
+        Triggered when >= 5 small native/token transfers occur within
         a 24-hour window.
         """
-        tiny = [edge for edge in edges if 0 < edge.value_eth <= 0.02 and edge.timestamp > 0]
+        tiny = [
+            edge
+            for edge in edges
+            if 0 < PatternAnalyzer._edge_amount(edge) <= PatternAnalyzer._micro_threshold(edge) and edge.timestamp > 0
+        ]
         if len(tiny) < 5:
             return []
 
@@ -397,7 +409,7 @@ class PatternAnalyzer:
                     "transfer_count": len(tiny),
                     "time_span_seconds": span,
                     "frequency_per_hour": round(frequency, 2),
-                    "total_value": round(sum(e.value_eth for e in tiny), 8),
+                    "total_value": round(sum(PatternAnalyzer._edge_amount(e) for e in tiny), 8),
                 },
             )
         ]
@@ -409,7 +421,7 @@ class PatternAnalyzer:
     def _dusting(self, edges: list[GraphEdge]) -> list[PatternSignal]:
         """Detect dust-sized transfers to many addresses.
 
-        Dusting: sending tiny amounts (<= 0.0001 ETH) to many addresses,
+        Dusting: sending tiny amounts to many addresses,
         often used for tracking or mixing.  Triggered when >= 5 dust
         transfers touch >= 3 distinct recipients.
         """
@@ -604,8 +616,33 @@ class PatternAnalyzer:
         return [
             edge
             for edge in edges
-            if 0 < edge.value_eth <= 0.0001 and (edge.timestamp == 0 or edge.timestamp >= recent_floor)
+            if 0 < PatternAnalyzer._edge_amount(edge) <= PatternAnalyzer._dust_threshold(edge)
+            and (edge.timestamp == 0 or edge.timestamp >= recent_floor)
         ]
+
+    @staticmethod
+    def _edge_amount(edge: GraphEdge) -> float:
+        return float(edge.amount if edge.amount is not None else edge.value_eth)
+
+    @staticmethod
+    def _is_token_edge(edge: GraphEdge) -> bool:
+        return bool(edge.token_contract_address) or edge.asset.upper() in {"USDT", "USDC", "ERC20"}
+
+    @staticmethod
+    def _micro_threshold(edge: GraphEdge) -> float:
+        return 20.0 if PatternAnalyzer._is_token_edge(edge) else 0.02
+
+    @staticmethod
+    def _dust_threshold(edge: GraphEdge) -> float:
+        return 0.01 if PatternAnalyzer._is_token_edge(edge) else 0.0001
+
+    @staticmethod
+    def _asset_label(edges: list[GraphEdge]) -> str:
+        assets = [edge.asset.upper() for edge in edges if edge.asset]
+        if not assets:
+            return "ETH"
+        [(asset, _count)] = Counter(assets).most_common(1)
+        return asset
 
     # ------------------------------------------------------------------
     # Network metric: Betweenness centrality (BFS-based, O(VE))

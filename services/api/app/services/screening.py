@@ -3,6 +3,7 @@ from __future__ import annotations
 from time import time
 from uuid import uuid4
 
+from app.domain.chains import is_native_asset, resolve_token_contract
 from app.domain.graph_builder import GraphBuilder, short_address
 from app.domain.models import (
     GraphEdge,
@@ -45,6 +46,8 @@ class ScreeningService:
             screening_id=screening_id,
             target=target,
             chain_id=payload.chain_id,
+            asset=payload.asset.value,
+            token_contract_address=payload.token_contract_address,
             from_address=from_address,
             to_address=to_address,
             tx_hash=tx_hash,
@@ -75,6 +78,7 @@ class ScreeningService:
             id=screening_id,
             chain_id=payload.chain_id,
             asset=payload.asset,
+            token_contract_address=resolve_token_contract(payload.chain_id, payload.asset.value, payload.token_contract_address),
             direction=payload.direction,
             from_address=from_address,
             to_address=to_address,
@@ -97,6 +101,8 @@ class ScreeningService:
         screening_id: str,
         target: str,
         chain_id: str,
+        asset: str,
+        token_contract_address: str | None,
         from_address: str,
         to_address: str,
         tx_hash: str,
@@ -109,8 +115,11 @@ class ScreeningService:
             chain_id=chain_id,
             depth=2,
             mode=InvestigationMode.stable,
+            asset=asset,
+            token_contract_address=token_contract_address,
         )
         graph = result.graph
+        resolved_token_contract = resolve_token_contract(chain_id, asset, token_contract_address)
         node_by_address = {node.address: node for node in graph.nodes}
         for address, source in ((from_address, "screening_party"), (to_address, "screening_party")):
             if address not in node_by_address:
@@ -125,10 +134,13 @@ class ScreeningService:
                     target=to_address,
                     tx_hash=tx_hash,
                     timestamp=timestamp,
-                    value_eth=amount,
+                    value_eth=amount if is_native_asset(chain_id, asset) else 0,
+                    amount=amount,
+                    asset=asset,
+                    token_contract_address=resolved_token_contract,
                     hop=0,
                     direction="screening",
-                    metadata={"source": "screening_request"},
+                    metadata={"source": "screening_request", "chain_id": chain_id},
                 ),
             )
         return graph

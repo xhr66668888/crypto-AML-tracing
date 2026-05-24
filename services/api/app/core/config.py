@@ -12,9 +12,14 @@ if load_dotenv:
 
 @dataclass(frozen=True)
 class Settings:
-    app_name: str = "Cregis ETH AML Tracing"
+    app_name: str = "Cregis Multi-Chain AML Tracing"
     api_v1_prefix: str = "/api/v1"
     cors_origins: tuple[str, ...] = ("http://localhost:5173", "http://127.0.0.1:5173")
+    trusted_hosts: tuple[str, ...] = ("localhost", "127.0.0.1", "0.0.0.0")
+    api_auth_enabled: bool = False
+    api_keys: tuple[str, ...] = ()
+    max_request_body_bytes: int = 1_000_000
+    rate_limit_per_minute: int = 120
     etherscan_api_key: str = ""
     etherscan_base_url: str = "https://api.etherscan.io/v2/api"
     goplus_token: str = ""
@@ -33,9 +38,16 @@ class Settings:
 
 def get_settings() -> Settings:
     cors = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
+    trusted_hosts = os.getenv("TRUSTED_HOSTS", "localhost,127.0.0.1,0.0.0.0")
+    api_keys = os.getenv("API_KEYS", os.getenv("API_KEY", ""))
     demo_mode = os.getenv("DEMO_MODE", "true").lower() in {"1", "true", "yes", "on"}
     return Settings(
         cors_origins=tuple(origin.strip() for origin in cors.split(",") if origin.strip()),
+        trusted_hosts=tuple(host.strip() for host in trusted_hosts.split(",") if host.strip()),
+        api_auth_enabled=os.getenv("API_AUTH_ENABLED", "false").lower() in {"1", "true", "yes", "on"},
+        api_keys=tuple(key.strip() for key in api_keys.split(",") if key.strip()),
+        max_request_body_bytes=int(os.getenv("MAX_REQUEST_BODY_BYTES", "1000000")),
+        rate_limit_per_minute=int(os.getenv("RATE_LIMIT_PER_MINUTE", "120")),
         etherscan_api_key=os.getenv("ETHERSCAN_API_KEY", ""),
         etherscan_base_url=os.getenv("ETHERSCAN_BASE_URL", "https://api.etherscan.io/v2/api"),
         goplus_token=os.getenv("GOPLUS_TOKEN", ""),

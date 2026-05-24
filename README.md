@@ -1,15 +1,15 @@
-# Cregis ETH AML Tracing
+# Cregis Multi-Chain AML Tracing
 
-Local-first Ethereum AML risk operations workbench for Cregis.
+Local-first EVM AML risk operations workbench for Cregis.
 
 The V1 workbench has two entrypoints:
 
-- Real-time ETH/USDT/USDC screening for inbound/outbound transfers before funds are released.
-- Deep investigation for an Ethereum address or transaction hash, with transaction graph evidence, deterministic AML pattern signals, source-backed risk hits, rule and Raindrop-inspired scores, and an English investigation report.
+- Real-time native-token and ERC-20 screening for inbound/outbound transfers before funds are released.
+- Deep investigation for an EVM address or transaction hash, with transaction graph evidence, deterministic AML pattern signals, source-backed risk hits, rule and Raindrop-inspired scores, and an English investigation report.
 
 ## Current Implementation
 
-- `services/api`: FastAPI backend with demo-mode Etherscan/GoPlus connectors, transfer screening, graph builder, pattern analysis, source-hit risk intelligence, rule risk engine, Raindrop AML scoring boundary, DeepSeek reporting adapter, and tests.
+- `services/api`: FastAPI backend with demo-mode Etherscan/GoPlus connectors, Etherscan V2 multi-chain and ERC-20 transfer tracing, transfer screening, graph builder, pattern analysis, source-hit risk intelligence, rule risk engine, Raindrop AML scoring boundary, DeepSeek reporting adapter, API hardening, and tests.
 - `apps/web`: React/Vite workbench with pre-withdrawal screening, investigation input, Cytoscape graph, risk evidence, pattern/source-hit panels, node details, Raindrop features, and report preview.
 - `docs`: architecture, team ownership, database schema, and Raindrop migration notes.
 
@@ -64,7 +64,13 @@ Run the V1 endpoint smoke tests against a running API:
 bash scripts/smoke.sh
 ```
 
-Tests: `/health`, screening, investigation CRUD, graph, risk, reports, watchlist import, and direct-hit `hold_for_manual_review` verification.
+Tests: `/health`, chain registry, native and ERC-20 screening, investigation CRUD, graph, risk, reports, watchlist import, direct-hit `hold_for_manual_review`, validation error envelopes, and optional API-key enforcement.
+
+For API-key protected runs:
+
+```bash
+SMOKE_API_KEY=your-local-key SMOKE_EXPECT_AUTH=true bash scripts/smoke.sh http://localhost:8000
+```
 
 ## CI
 
@@ -96,6 +102,13 @@ Demo mode is enabled by default. To call real providers, set `DEMO_MODE=false` a
 - `DEEPSEEK_API_KEY`
 
 Keep `.env` local; it is ignored by git.
+
+For controlled network exposure, set:
+
+- `API_AUTH_ENABLED=true`
+- `API_KEYS=comma,separated,keys`
+- `TRUSTED_HOSTS=your.api.host,localhost`
+- `CORS_ORIGINS=https://your-web-origin.example`
 
 ## Working with OpenCode Subagents
 

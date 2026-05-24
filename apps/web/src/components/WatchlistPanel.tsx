@@ -33,12 +33,9 @@ export function WatchlistPanel() {
     setLoading(true);
     setError("");
     try {
-      const [entriesData, statsData] = await Promise.all([
-        request<WatchlistEntry[]>("/api/v1/watchlist"),
-        request<WatchlistStats>("/api/v1/watchlist/stats")
-      ]);
+      const entriesData = await request<WatchlistEntry[]>("/api/v1/watchlists");
       setEntries(entriesData);
-      setStats(statsData);
+      setStats(buildStats(entriesData));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load watchlist");
     } finally {
@@ -54,7 +51,7 @@ export function WatchlistPanel() {
     if (!newAddress.trim() || !newLabel.trim()) return;
     setAddLoading(true);
     try {
-      await request("/api/v1/watchlist", {
+      await request("/api/v1/watchlists", {
         method: "POST",
         body: JSON.stringify({
           address: newAddress.trim(),
@@ -191,5 +188,17 @@ export function WatchlistPanel() {
         </div>
       )}
     </section>
+  );
+}
+
+function buildStats(entries: WatchlistEntry[]): WatchlistStats {
+  return entries.reduce<WatchlistStats>(
+    (stats, entry) => {
+      stats.total_entries += 1;
+      stats.by_severity[entry.severity] = (stats.by_severity[entry.severity] ?? 0) + 1;
+      stats.by_category[entry.category] = (stats.by_category[entry.category] ?? 0) + 1;
+      return stats;
+    },
+    { total_entries: 0, by_severity: {}, by_category: {} }
   );
 }

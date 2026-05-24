@@ -4,7 +4,10 @@ from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from app.domain.chains import SUPPORTED_CHAINS, get_chain, is_native_asset, resolve_token_contract
+from app.domain.validators import normalize_address, normalize_hash, validate_chain_id
 
 
 class InvestigationMode(str, Enum):
@@ -38,15 +41,78 @@ class TransferDirection(str, Enum):
 
 class AssetSymbol(str, Enum):
     eth = "ETH"
+    bnb = "BNB"
+    matic = "MATIC"
     usdt = "USDT"
     usdc = "USDC"
+    erc20 = "ERC20"
+
+
+class ChainInfo(BaseModel):
+    chain_id: str
+    name: str
+    native_asset: str
+    explorer_url: str
+    assets: list[str]
+    token_contracts: dict[str, str]
+
+
+def chain_infos() -> list[ChainInfo]:
+    return [
+        ChainInfo(
+            chain_id=chain.chain_id,
+            name=chain.name,
+            native_asset=chain.native_asset,
+            explorer_url=chain.explorer_url,
+            assets=chain.assets,
+            token_contracts=chain.token_contracts,
+        )
+        for chain in SUPPORTED_CHAINS.values()
+    ]
+
+
+def _normalize_token_contract(token_contract_address: str | None) -> str | None:
+    if not token_contract_address:
+        return None
+    return normalize_address(token_contract_address)
+
+
+def _resolve_asset_for_chain(
+    chain_id: str,
+    asset: AssetSymbol,
+    token_contract_address: str | None,
+) -> AssetSymbol:
+    chain = get_chain(chain_id)
+    asset_value = asset.value.upper()
+    if token_contract_address:
+        return AssetSymbol.erc20
+    if asset_value == "ETH" and chain.native_asset != "ETH":
+        return AssetSymbol(chain.native_asset)
+    if is_native_asset(chain_id, asset_value):
+        return AssetSymbol(asset_value)
+    if resolve_token_contract(chain_id, asset_value):
+        return AssetSymbol(asset_value)
+    raise ValueError(
+        f"Asset {asset_value} is not configured for chain_id {chain_id}. "
+        "Provide token_contract_address for a custom ERC-20 asset."
+    )
 
 
 class InvestigationCreate(BaseModel):
     target: str = Field(..., min_length=42, max_length=66)
     chain_id: str = "1"
+    asset: AssetSymbol = AssetSymbol.eth
+    token_contract_address: str | None = Field(None, min_length=42, max_length=42)
     depth: int = Field(3, ge=1, le=5)
     mode: InvestigationMode = InvestigationMode.stable
+
+    @model_validator(mode="after")
+    def validate_target_chain_and_asset(self) -> "InvestigationCreate":
+        self.chain_id = validate_chain_id(self.chain_id)
+        self.target = normalize_hash(self.target) if len(self.target.strip()) == 66 else normalize_address(self.target)
+        self.token_contract_address = _normalize_token_contract(self.token_contract_address)
+        self.asset = _resolve_asset_for_chain(self.chain_id, self.asset, self.token_contract_address)
+        return self
 
 
 class InvestigationStatus(BaseModel):
@@ -54,6 +120,8 @@ class InvestigationStatus(BaseModel):
     target: str
     target_type: TargetType
     chain_id: str
+    asset: AssetSymbol = AssetSymbol.eth
+    token_contract_address: str | None = None
     depth: int
     mode: InvestigationMode
     status: str
@@ -82,6 +150,9 @@ class GraphEdge(BaseModel):
     tx_hash: str
     timestamp: int
     value_eth: float
+    amount: float | None = None
+    asset: str = "ETH"
+    token_contract_address: str | None = None
     hop: int
     direction: str
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -154,20 +225,33 @@ class RiskResponse(BaseModel):
 class ScreeningTransactionCreate(BaseModel):
     chain_id: str = "1"
     asset: AssetSymbol = AssetSymbol.eth
+    token_contract_address: str | None = Field(None, min_length=42, max_length=42)
     direction: TransferDirection = TransferDirection.outbound
     from_address: str = Field(..., min_length=42, max_length=42)
     to_address: str = Field(..., min_length=42, max_length=42)
-    amount: float = Field(..., ge=0)
+    amount: float = Field(..., gt=0)
     customer_id: str | None = None
     team_id: str | None = None
     tx_hash: str | None = Field(None, min_length=66, max_length=66)
     timestamp: int | None = None
+
+    @model_validator(mode="after")
+    def validate_screening_payload(self) -> "ScreeningTransactionCreate":
+        self.chain_id = validate_chain_id(self.chain_id)
+        self.from_address = normalize_address(self.from_address)
+        self.to_address = normalize_address(self.to_address)
+        if self.tx_hash:
+            self.tx_hash = normalize_hash(self.tx_hash)
+        self.token_contract_address = _normalize_token_contract(self.token_contract_address)
+        self.asset = _resolve_asset_for_chain(self.chain_id, self.asset, self.token_contract_address)
+        return self
 
 
 class ScreeningResponse(BaseModel):
     id: str
     chain_id: str
     asset: AssetSymbol
+    token_contract_address: str | None = None
     direction: TransferDirection
     from_address: str
     to_address: str
@@ -186,6 +270,7 @@ class ScreeningResponse(BaseModel):
 
 
 class ReportRequest(BaseModel):
+    language: str = "en"
     include_raw_context: bool = True
 
 
@@ -199,10 +284,15 @@ class ReportResponse(BaseModel):
 
 class WatchlistEntry(BaseModel):
     address: str = Field(..., min_length=42, max_length=42)
-    label: str
-    category: str = "manual"
+    label: str = Field(..., min_length=1, max_length=160)
+    category: str = Field("manual", min_length=1, max_length=80)
     severity: RiskLevel = RiskLevel.high
-    notes: str = ""
+    notes: str = Field("", max_length=1000)
+
+    @field_validator("address")
+    @classmethod
+    def validate_watchlist_address(cls, value: str) -> str:
+        return normalize_address(value)
 
 
 DIRECT_HIT_CATEGORIES: frozenset[str] = frozenset(

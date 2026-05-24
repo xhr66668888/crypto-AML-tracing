@@ -48,7 +48,7 @@ def extract_features(graph: InvestigationGraph) -> dict[str, float | int | str]:
         out_degree[edge.source] += 1
         in_degree[edge.target] += 1
 
-    values = [edge.value_eth for edge in edges]
+    values = [_edge_amount(edge) for edge in edges]
     timestamps = sorted(edge.timestamp for edge in edges if edge.timestamp > 0)
 
     # Target node (root of investigation) ---------------------------------
@@ -67,8 +67,8 @@ def extract_features(graph: InvestigationGraph) -> dict[str, float | int | str]:
     target_in = in_degree.get(target_addr, 0)
     target_out = out_degree.get(target_addr, 0)
     # value in/out for target
-    value_in = sum(e.value_eth for e in edges if e.target == target_addr)
-    value_out = sum(e.value_eth for e in edges if e.source == target_addr)
+    value_in = sum(_edge_amount(e) for e in edges if e.target == target_addr)
+    value_out = sum(_edge_amount(e) for e in edges if e.source == target_addr)
     tx_count = target_in + target_out
 
     # Temporal features ---------------------------------------------------
@@ -147,3 +147,7 @@ def _burst_score(gaps: list[int]) -> float:
         return 1.0
     cv = pstdev(gaps) / mean_gap
     return min(1.0, cv)
+
+
+def _edge_amount(edge) -> float:
+    return float(edge.amount if getattr(edge, "amount", None) is not None else edge.value_eth)

@@ -27,19 +27,20 @@ V1 does not automatically sync with Circle's USDC blacklist or Tether's USDT bla
 
 ---
 
-## 3. No Multi-Chain Support
+## 3. Limited Multi-Chain Support
 
-V1 supports Ethereum mainnet only (chain_id `"1"`). There is no support for:
+V1 now supports a curated set of EVM chains via Etherscan API V2:
 
-- Tron (TRC-20 USDT)
-- BNB Smart Chain (BEP-20)
-- Polygon
-- Arbitrum / Optimism
-- Any other EVM or non-EVM chain
+- Ethereum Mainnet (`1`)
+- BNB Smart Chain (`56`)
+- Polygon (`137`)
+- Arbitrum One (`42161`)
+- Optimism (`10`)
+- Base (`8453`)
 
-**Impact**: Cross-chain fund tracing is not possible. Addresses that move funds through bridges or other chains will have incomplete graphs.
+There is still no support for non-EVM networks such as Tron/TRC-20.
 
-**Mitigation**: The `chain_id` field is present in all models and can be extended in future versions.
+**Impact**: Cross-chain fund tracing is limited to the configured EVM chain selected per investigation or screening request. Bridge attribution is not automated.
 
 ---
 
@@ -105,11 +106,11 @@ All operations are synchronous API calls.
 
 ---
 
-## 9. No Token Transfer (ERC-20) Graph Tracing
+## 9. Limited Token Transfer Graph Tracing
 
-V1 traces ETH (native) transfers via Etherscan's `txlist` API. ERC-20 token transfers (USDT, USDC) are not traced at the graph level.
+V1 can trace ERC-20 transfers through Etherscan's `tokentx` endpoint for configured token contracts or a manually supplied `token_contract_address`.
 
-**Impact**: The `asset` field in screening is used for threshold analysis only. The transaction graph is built from ETH transfers, not token transfers.
+**Impact**: ERC-721/ERC-1155 transfers, DEX swaps, bridge events, and protocol-specific decoded actions are not yet modeled as first-class graph events.
 
 ---
 
@@ -125,14 +126,14 @@ V1 generates a single English report format. There are no jurisdiction-specific 
 |---|---|
 | Real PEP commercial library | Not supported |
 | Circle/Tether official blacklist sync | Not supported |
-| Multi-chain (Tron, BSC, Polygon) | Not supported |
+| Multi-chain (curated EVM chains) | Supported |
 | Real ML training / GPU inference | Not supported |
 | Enterprise permissions / approval flows | Not supported |
 | Persistent audit backend | Schema ready, not wired |
 | Real-time provider streaming | Not supported |
 | OFAC/SDN official feed sync | Not supported |
 | Scheduled batch screening | Not supported |
-| ERC-20 token transfer tracing | Not supported |
+| ERC-20 token transfer tracing | Supported with configured/custom contracts |
 | Jurisdiction-specific report templates | Not supported |
 
 ---
